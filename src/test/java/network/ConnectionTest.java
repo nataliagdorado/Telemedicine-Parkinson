@@ -1,4 +1,4 @@
-ackage network;
+package network;
 
 import common.Message;
 import org.junit.jupiter.api.BeforeAll;
@@ -48,6 +48,53 @@ public class ConnectionTest {
         assertNotNull(response);
         assertEquals("ACK", response.getType());
         assertEquals("CONNECTED", response.getData().get("status"));
+
+        conn.close();
+    }
+
+
+
+    // El otro test para probar si unifica
+    @Test
+    public void testPatientLoginGeneratesSessionToken() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+
+        Message loginMsg = new Message("LOGIN", "req-login");
+        loginMsg.setPatientId("PATIENT-101");
+        loginMsg.addData("role", "PATIENT");
+
+        Message response = conn.send(loginMsg);
+
+        assertNotNull(response);
+        assertEquals("LOGIN_RESPONSE", response.getType());
+        assertEquals("SUCCESS", response.getStatus());
+        assertTrue((Boolean) response.getData().get("authenticated"));
+
+        String token = (String) response.getData().get("sessionToken");
+        assertNotNull(token);
+        assertTrue(token.startsWith("TOKEN-"));
+
+        conn.close();
+    }
+
+    @Test
+    public void testSymptomReportRecordedSuccessfully() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+
+        Message symptomMsg = new Message("SYMPTOM_REPORT", "req-symptom");
+        symptomMsg.setPatientId("PATIENT-101");
+        symptomMsg.addData("tremorSeverity", 3);
+        symptomMsg.addData("rigidityLevel", "MODERATE");
+        symptomMsg.addData("medicationTaken", true);
+
+        Message response = conn.send(symptomMsg);
+
+        assertNotNull(response);
+        assertEquals("ACK", response.getType());
+        assertEquals("RECORDED", response.getStatus());
+        assertEquals("SAVED", response.getData().get("status"));
 
         conn.close();
     }

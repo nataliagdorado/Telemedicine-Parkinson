@@ -1,38 +1,82 @@
-//POJO COMPARTIDO --> SE TRANSMITE POR LA RED TCP/IP ENTRE CLIENTE PACIENTE Y EL SERVIDOR
-//Implementan Serializable para ser convertidos a JSON sin problemas
+package common;
 
-//Actua como paquete envoltorio generico para la red.Indica la accion que ejecutar y lleva el cuerpo de datos
-//-->Requisitos R10 y R5 del proyecto
-
-/*nATALIA NECESITA Cuadrar lo de Sarah con lo suyo
-        package common;
-
+import java.io.Serializable;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
-public class Message {
-    private String type; // Qué acción se solicita: LOGIN, SYMPTOM_REPORT etc.
-    private String requestId; // Identificador único para que responda con un ACK
-    private Map<String, Object> data; // Aquí meto los datos que quiero transmitir
+/**
+ * POJO compartido para transmisión por red TCP/IP entre Cliente y Servidor.
+ * Actúa como envoltorio genérico compatible con JSON y Serializable.
+ */
+public class Message implements Serializable {
+    private static final long serialVersionUID = 1L;
 
+    // --- Campos de Natalia (Protocolo de red & Tests) ---
+    private String type;               // Acción / Tipo: LOGIN, SYMPTOM_REPORT, HELLO, ACK...
+    private String requestId;          // Identificador único para el ACK
+    private Map<String, Object> data;  // Mapa de clave-valor genérico para datos
+
+    // --- Campos de Sarah (Control clínico & POJOs) ---
+    private String action;             // Sinónimo de type
+    private String patientId;          // ID del paciente asociado
+    private LocalDateTime timeStamp;   // Marca temporal
+    private String status;             // PENDING, CONNECTED, ERROR, etc.
+    private Object payload;            // POJO adjunto (SymptomReport, SessionInfo...)
+
+    // Constructor por defecto
     public Message() {
         this.data = new HashMap<>();
+        this.timeStamp = LocalDateTime.now();
+        this.status = "PENDING";
     }
 
+    // Constructor de Natalia (usado por el cliente de red y tests)
     public Message(String type, String requestId) {
         this.type = type;
+        this.action = type; // Sincroniza con el campo de Sarah
         this.requestId = requestId;
         this.data = new HashMap<>();
+        this.timeStamp = LocalDateTime.now();
+        this.status = "PENDING";
     }
 
-    public String getType() { return type; }
-    public void setType(String type) { this.type = type; }
+    // Constructor de Sarah
+    public Message(String action, String patientId, Object payload) {
+        this.action = action;
+        this.type = action; // Sincroniza con el campo de Natalia
+        this.patientId = patientId;
+        this.payload = payload;
+        this.data = new HashMap<>();
+        this.timeStamp = LocalDateTime.now();
+        this.status = "PENDING";
+    }
 
-    public String getRequestId() { return requestId; }
-    public void setRequestId(String requestId) { this.requestId = requestId; }
+    // --- Métodos de Natalia ---
+    public String getType() {
+        return type != null ? type : action;
+    }
 
-    public Map<String, Object> getData() { return data; }
-    public void setData(Map<String, Object> data) { this.data = data; }
+    public void setType(String type) {
+        this.type = type;
+        this.action = type;
+    }
+
+    public String getRequestId() {
+        return requestId;
+    }
+
+    public void setRequestId(String requestId) {
+        this.requestId = requestId;
+    }
+
+    public Map<String, Object> getData() {
+        return data;
+    }
+
+    public void setData(Map<String, Object> data) {
+        this.data = data;
+    }
 
     public void addData(String key, Object value) {
         if (this.data == null) {
@@ -40,69 +84,43 @@ public class Message {
         }
         this.data.put(key, value);
     }
-}*/
-package common;
 
-import java.io.Serializable;
-import java.time.LocalDateTime;
-
-public class Message implements Serializable {
-    private static final long serialVersionUID=1L;
-
-    private String action;
-    private String patientId;
-    private LocalDateTime timeStamp;
-    private String status;
-    private Object payload; //¿que pojo se esta enviando?SymptomReport, SessionInfo...
-
-
-    public Message(){
-        this.timeStamp=LocalDateTime.now();
-        this.status="PENDING";
-    }
-
-    public Message(String action, String patientId, Object payload) {
-        this.action = action;
-        this.patientId = patientId;
-        this.timeStamp = LocalDateTime.now();
-        this.status = "PENDING";
-        this.payload = payload;
-    }
-
+    // --- Métodos de Sarah ---
     public String getAction() {
-        return action;
+        return action != null ? action : type;
+    }
+
+    public void setAction(String action) {
+        this.action = action;
+        this.type = action;
     }
 
     public String getPatientId() {
         return patientId;
     }
 
-    public LocalDateTime getTimeStamp() {
-        return timeStamp;
-    }
-
-    public String getStatus() {
-        return status;
-    }
-
-    public Object getPayload() {
-        return payload;
-    }
-
-    public void setAction(String action) {
-        this.action = action;
-    }
-
     public void setPatientId(String patientId) {
         this.patientId = patientId;
+    }
+
+    public LocalDateTime getTimeStamp() {
+        return timeStamp;
     }
 
     public void setTimeStamp(LocalDateTime timeStamp) {
         this.timeStamp = timeStamp;
     }
 
+    public String getStatus() {
+        return status;
+    }
+
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public Object getPayload() {
+        return payload;
     }
 
     public void setPayload(Object payload) {
@@ -112,13 +130,13 @@ public class Message implements Serializable {
     @Override
     public String toString() {
         return "Message{" +
-                "action='" + action + '\'' +
+                "type='" + getType() + '\'' +
+                ", requestId='" + requestId + '\'' +
                 ", patientId='" + patientId + '\'' +
-                ", timeStamp=" + timeStamp +
                 ", status='" + status + '\'' +
+                ", timeStamp=" + timeStamp +
+                ", data=" + data +
                 ", payload=" + payload +
                 '}';
     }
-
-
 }

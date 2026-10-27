@@ -1,38 +1,57 @@
 package common;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonSyntaxException;
+import com.google.gson.*;
 
+import java.lang.reflect.Type;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
-// Natalia metió en el pom la liberia Gson para transformar objetos en texto de una sola linea y viceversa
+/**
+ * Codificador y decodificador JSON para el protocolo de red.
+ * Incluye adaptador para serializar LocalDateTime de forma segura en Java 17.
+ */
 public class MessageCodec {
-    private static final Gson gson = new Gson();
 
-    /**
-     * Convierte un objeto Message en una línea de texto JSON.
-     */
+    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+
+    private static final Gson GSON = new GsonBuilder()
+            .registerTypeAdapter(LocalDateTime.class, new JsonSerializer<LocalDateTime>() {
+                @Override
+                public JsonElement serialize(LocalDateTime src, Type typeOfSrc, JsonSerializationContext context) {
+                    return src == null ? JsonNull.INSTANCE : new JsonPrimitive(src.format(FORMATTER));
+                }
+            })
+            .registerTypeAdapter(LocalDateTime.class, new JsonDeserializer<LocalDateTime>() {
+                @Override
+                public LocalDateTime deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context)
+                        throws JsonParseException {
+                    if (json == null || json.isJsonNull() || json.getAsString().trim().isEmpty()) {
+                        return null;
+                    }
+                    return LocalDateTime.parse(json.getAsString(), FORMATTER);
+                }
+            })
+            .create();
+
     public static String encode(Message message) {
         if (message == null) {
-            throw new IllegalArgumentException("El mensaje no puede ser nulo");
+            return "";
         }
-        return gson.toJson(message);
+        return GSON.toJson(message);
     }
 
-    /**
-     * Convierte una línea de texto JSON en un objeto Message.
-     */
-    public static Message decode(String jsonLine) throws ProtocolException {
-        if (jsonLine == null || jsonLine.trim().isEmpty()) {
-            throw new ProtocolException("Mensaje vacío recibido");
+    public static Message decode(String json) throws ProtocolException {
+        if (json == null || json.trim().isEmpty()) {
+            throw new ProtocolException("Received empty or null JSON payload");
         }
         try {
-            Message msg = gson.fromJson(jsonLine, Message.class);
-            if (msg.getType() == null) {
-                throw new ProtocolException("El mensaje recibido no tiene campo 'type'");
+            Message msg = GSON.fromJson(json, Message.class);
+            if (msg == null) {
+                throw new ProtocolException("Failed to parse JSON into Message object");
             }
             return msg;
         } catch (JsonSyntaxException e) {
-            throw new ProtocolException("Formato JSON corrupto o mal formado: " + jsonLine, e);
+            throw new ProtocolException("Malformed JSON string: " + json, e);
         }
     }
 }

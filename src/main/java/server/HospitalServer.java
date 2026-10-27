@@ -21,6 +21,8 @@ public class HospitalServer {
 
     private static final Logger LOGGER = Logger.getLogger(HospitalServer.class.getName());
     private static final int PORT = Config.getInt("server.port", 9000);
+//Instancia del registro
+    public static final ClientRegistry clientRegistry = new ClientRegistry();
 
     // Thread-safe registry to track active clients for graceful shutdown
     public static final Set<ClientHandler> activeClients = Collections.synchronizedSet(new HashSet<>());

@@ -9,19 +9,19 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-/**
- * Dedicated worker thread that handles communication with a single connected client.
- */
 public class ClientHandler implements Runnable {
 
     private static final Logger LOGGER = Logger.getLogger(ClientHandler.class.getName());
     private final Socket socket;
+    private final CommandRouter router;
 
     public ClientHandler(Socket socket) {
         this.socket = socket;
+        this.router = new CommandRouter();
     }
 
     @Override
@@ -30,21 +30,27 @@ public class ClientHandler implements Runnable {
         HospitalServer.activeClients.add(this);
         LOGGER.info("[Thread " + threadId + "] Client session started for: " + socket.getRemoteSocketAddress());
 
+        //Añadida la siguientel inea despues. Al arrancar para conectar ClientRegistry y ClientHandler
+        HospitalServer.clientRegistry.register(this);
         try (
-                BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                PrintWriter writer = new PrintWriter(socket.getOutputStream(), true)
+                BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+                PrintWriter writer = new PrintWriter(socket.getOutputStream(), true, StandardCharsets.UTF_8)
         ) {
             String jsonLine;
 
-            // Continuously process incoming messages until connection terminates
+            // Procesar mensajes entrantes hasta que se cierre la conexion
             while ((jsonLine = reader.readLine()) != null) {
+                if (jsonLine.trim().isEmpty()) {
+                    continue;
+                }
+
                 try {
                     Message request = MessageCodec.decode(jsonLine);
                     LOGGER.info("[Thread " + threadId + "] Received: type=" + request.getType()
                             + ", requestId=" + request.getRequestId());
 
-                    // Dispatch request to handle the specific command
-                    Message response = processMessage(request);
+                    // Despachar la peticion al CommandRouter desacoplado
+                    Message response = router.route(request);
                     writer.println(MessageCodec.encode(response));
 
                 } catch (ProtocolException pe) {
@@ -62,6 +68,9 @@ public class ClientHandler implements Runnable {
             LOGGER.log(Level.WARNING, "[Thread " + threadId + "] Client connection error: " + ex.getMessage());
         } finally {
             HospitalServer.activeClients.remove(this);
+
+            // Conectar ClientRegistry en HospitalServer y ClientHandler
+            HospitalServer.clientRegistry.unregister(this);
             try {
                 if (socket != null && !socket.isClosed()) {
                     socket.close();
@@ -71,38 +80,5 @@ public class ClientHandler implements Runnable {
             }
             LOGGER.info("[Thread " + threadId + "] Worker thread terminated.");
         }
-    }
-
-    /**
-     * Evaluates incoming message types and returns an appropriate response.
-     */
-    private Message processMessage(Message request) {
-        Message response = new Message("ACK", request.getRequestId());
-
-        switch (request.getType()) {
-            case "HELLO":
-                response.addData("status", "CONNECTED");
-                response.addData("protocolVersion", "1.0");
-                break;
-
-            case "SYMPTOM_REPORT":
-                // Persistence layer call will be integrated here
-                response.addData("status", "SAVED");
-                response.addData("reportId", "REP-" + System.currentTimeMillis());
-                break;
-
-            case "SESSION_START":
-                response.addData("status", "SESSION_INITIALIZED");
-                response.addData("sessionId", "SES-" + System.currentTimeMillis());
-                break;
-
-            default:
-                response.setType("ERROR");
-                response.addData("code", "UNSUPPORTED_TYPE");
-                response.addData("message", "Unknown message type: " + request.getType());
-                break;
-        }
-
-        return response;
     }
 }

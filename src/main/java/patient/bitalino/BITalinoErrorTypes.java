@@ -1,6 +1,6 @@
 package patient.bitalino;
 
-import static sun.jvm.hotspot.interpreter.Bytecodes.name;
+// import static sun.jvm.hotspot.interpreter.Bytecodes.name; ESTA LINEA DA ERROR @sarah
 
 public enum BITalinoErrorTypes {
     BT_DEVICE_NOT_CONNECTED(0, "The Bluetooth device is not connected."),

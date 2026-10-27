@@ -1,5 +1,5 @@
 package common;
-
+/*
 // Excepción personalizada del documento que mandó Sarah
 public class ProtocolException extends Exception {
     public ProtocolException(String message) {
@@ -10,3 +10,5 @@ public class ProtocolException extends Exception {
         super(message, cause);
     }
 }
+
+*/
