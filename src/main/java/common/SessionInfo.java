@@ -26,7 +26,7 @@ public class SessionInfo implements Serializable {
     private SessionStatus status = SessionStatus.RECORDING;
 
 
-    public SessionInfo(String sessionId, String patientId, LocalDateTime now, int samplingRateHz){
+    public SessionInfo(){
     }
 
     public SessionInfo(String sessionId, String patientId, LocalDateTime startTime, int samplingRateHz, int[] channels) {
@@ -104,9 +104,6 @@ public class SessionInfo implements Serializable {
         this.startTime = startTime;
     }
 
-    public void setEndTime(LocalDateTime endTime) {
-        this.endTime = endTime;
-    } /** TODO SARAH: Comentarselo a Sarah que lo quiero cambiar  */
 
     public void setSamplingRateHz(int samplingRateHz) {
         this.samplingRateHz = samplingRateHz;

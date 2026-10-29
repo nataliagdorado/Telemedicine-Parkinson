@@ -39,7 +39,7 @@ public class MonitoringSessionController implements Runnable{
             return;
         }
         //Inicializa el objeto de sesion con los metadatos y la hora de inciio
-        SessionInfo info = new SessionInfo(sessionId, patientId, LocalDateTime.now(), samplingRateHz);
+        SessionInfo info = new SessionInfo(sessionId, patientId, LocalDateTime.now(), samplingRateHz, channels);
         activeSession = new MonitoringSession(info, null);
         running = true;
         // Control del bucle
@@ -64,7 +64,12 @@ public class MonitoringSessionController implements Runnable{
         }
         //Finalizacion de la grabacion limpia
         signalSource.stopAcquisition();
-        activeSession.getInfo().setEndTime(LocalDateTime.now());//Registro de la hora de fin
+        LocalDateTime end = LocalDateTime.now();
+        if (Thread.currentThread().isInterrupted()) {
+            activeSession.getInfo().markIncomplete(end);   // el hilo se cortó
+        } else {
+            activeSession.getInfo().complete(end);         // fin de tiempo o botón "parar"
+        }
         running = false;
     }
 
