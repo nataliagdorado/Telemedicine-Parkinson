@@ -5,17 +5,20 @@
 
 package common;
 import java.io.Serializable;
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 
 public class SymptomReport implements Serializable{
     private static final long serialVersionUID = 1L;
 
-    private String patientID;
+    private String patientId;
     private String reportId;
     private LocalDateTime timeStamp;
     private int rigidityLevel;
     private int tremorLevel;
+    private boolean medicationTaken;
+    private LocalDateTime lastDoseTime;
     private boolean freezingEpisodes;
     private String notes;
 
@@ -23,18 +26,20 @@ public class SymptomReport implements Serializable{
         this.timeStamp=LocalDateTime.now();
     }
 
-    public SymptomReport(String patientID, String reportId, int rigidityLevel, int tremorLevel, boolean freezingEpisodes, String notes) {
-        this.patientID = patientID;
+    public SymptomReport(String patientId, String reportId, int rigidityLevel, int tremorLevel, boolean medicationTaken,LocalDateTime lastDoseTime, boolean freezingEpisodes, String notes) {
+        this.patientId = patientId;
         this.reportId = reportId;
         this.timeStamp = LocalDateTime.now();
         this.rigidityLevel = rigidityLevel;
         this.tremorLevel = tremorLevel;
+        this.medicationTaken = medicationTaken;
+        this.lastDoseTime = lastDoseTime;
         this.freezingEpisodes = freezingEpisodes;
         this.notes = notes;
     }
 
-    public String getPatientID() {
-        return patientID;
+    public String getPatientId() {
+        return patientId;
     }
 
     public String getReportId() {
@@ -53,6 +58,22 @@ public class SymptomReport implements Serializable{
         return tremorLevel;
     }
 
+    public boolean isMedicationTaken() {
+        return medicationTaken;
+    }
+
+    public LocalDateTime getLastDoseTime() {
+        return lastDoseTime;
+    }
+
+    public Long getMinutesSinceLastDose() {   // calculado, no guardado
+        if (lastDoseTime == null) {
+            return null;
+        } else {
+            return Duration.between(lastDoseTime, timeStamp).toMinutes();
+        }
+    }
+
     public boolean isFreezingEpisodes() {
         return freezingEpisodes;
     }
@@ -61,8 +82,8 @@ public class SymptomReport implements Serializable{
         return notes;
     }
 
-    public void setPatientID(String patientID) {
-        this.patientID = patientID;
+    public void setPatientId(String patientId) {
+        this.patientId = patientId;
     }
 
     public void setReportId(String reportId) {
@@ -81,6 +102,14 @@ public class SymptomReport implements Serializable{
         this.tremorLevel = tremorLevel;
     }
 
+    public void setMedicationTaken(boolean medicationTaken) {
+        this.medicationTaken = medicationTaken;
+    }
+
+    public void setLastDoseTime(LocalDateTime lastDoseTime) {
+        this.lastDoseTime = lastDoseTime;
+    }
+
     public void setFreezingEpisodes(boolean freezingEpisodes) {
         this.freezingEpisodes = freezingEpisodes;
     }
@@ -92,11 +121,13 @@ public class SymptomReport implements Serializable{
     @Override
     public String toString() {
         return "SymptomReport{" +
-                "patientID='" + patientID + '\'' +
+                "patientID='" + patientId + '\'' +
                 ", reportId='" + reportId + '\'' +
                 ", timeStamp=" + timeStamp +
                 ", rigidityLevel=" + rigidityLevel +
                 ", tremorLevel=" + tremorLevel +
+                ", isMedicationTaken=" + medicationTaken +
+                ", minutesSinceLastDose=" + getMinutesSinceLastDose() +
                 ", freezingEpisodes=" + freezingEpisodes +
                 ", notes='" + notes + '\'' +
                 '}';

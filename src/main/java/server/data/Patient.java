@@ -8,23 +8,29 @@ package server.data;
 import common.SessionInfo;
 
 import java.io.Serializable;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.Period;
 
 public class Patient implements Serializable {
     private static final long serialVersionUID=1L;
 
     private String patientId;
     private String name;
-    private int age;
+    private LocalDate birthDate;
+    private Integer diagnosisYear;
     private String medicationSchedule;
 
     public Patient(){}
 
-    public Patient(String patientId, String name, int age, String medicationSchedule) {
+    public Patient(String patientId, String name, LocalDate birthDate, Integer diagnosisYear, String medicationSchedule) {
         this.patientId = patientId;
         this.name = name;
-        this.age = age;
+        this.birthDate = birthDate;
+        this.diagnosisYear = diagnosisYear;
         this.medicationSchedule = medicationSchedule;
     }
+
 
     public String getPatientId() {
         return patientId;
@@ -34,9 +40,22 @@ public class Patient implements Serializable {
         return name;
     }
 
-    public int getAge() {
-        return age;
+    public Integer getAgeAt(LocalDate date) {
+        if (birthDate == null || date == null) {
+            return null;
+        }
+        return Period.between(birthDate, date).getYears();
     }
+    public Integer getAge() {
+        return getAgeAt(LocalDate.now());
+    }
+
+    public Integer getYearsSinceDiagnosis() {
+        return (diagnosisYear == null) ? null : LocalDate.now().getYear() - diagnosisYear;
+    }
+    public LocalDate getBirthDate() { return birthDate; }
+
+    public Integer getDiagnosisYear() { return diagnosisYear; }
 
     public String getMedicationSchedule() {
         return medicationSchedule;
@@ -50,9 +69,8 @@ public class Patient implements Serializable {
         this.name = name;
     }
 
-    public void setAge(int age) {
-        this.age = age;
-    }
+    public void setBirthDate(LocalDate birthDate) { this.birthDate = birthDate; }
+    public void setDiagnosisYear(Integer diagnosisYear) { this.diagnosisYear = diagnosisYear; }
 
     public void setMedicationSchedule(String medicationSchedule) {
         this.medicationSchedule = medicationSchedule;
@@ -63,7 +81,9 @@ public class Patient implements Serializable {
         return "Patient{" +
                 "patientId='" + patientId + '\'' +
                 ", name='" + name + '\'' +
-                ", age=" + age +
+                ", birthDate=" + birthDate +
+                ", age=" + getAge() +
+                ", diagnosisYear=" + diagnosisYear +
                 ", medicationSchedule='" + medicationSchedule + '\'' +
                 '}';
     }
