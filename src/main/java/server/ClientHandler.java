@@ -27,7 +27,6 @@ public class ClientHandler implements Runnable {
     @Override
     public void run() {
         long threadId = Thread.currentThread().getId();
-        HospitalServer.activeClients.add(this);
         LOGGER.info("[Thread " + threadId + "] Client session started for: " + socket.getRemoteSocketAddress());
 
         //Añadida la siguientel inea despues. Al arrancar para conectar ClientRegistry y ClientHandler
@@ -67,7 +66,6 @@ public class ClientHandler implements Runnable {
         } catch (IOException ex) {
             LOGGER.log(Level.WARNING, "[Thread " + threadId + "] Client connection error: " + ex.getMessage());
         } finally {
-            HospitalServer.activeClients.remove(this);
 
             // Conectar ClientRegistry en HospitalServer y ClientHandler
             HospitalServer.clientRegistry.unregister(this);
@@ -79,6 +77,16 @@ public class ClientHandler implements Runnable {
                 LOGGER.log(Level.SEVERE, "Error closing client socket", ex);
             }
             LOGGER.info("[Thread " + threadId + "] Worker thread terminated.");
+        }
+    }
+
+    public void closeSocket() {
+        try {
+            if (socket != null && !socket.isClosed()) {
+                socket.close();
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error closing client socket: " + e.getMessage());
         }
     }
 }

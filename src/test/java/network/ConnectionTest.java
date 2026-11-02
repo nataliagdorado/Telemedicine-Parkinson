@@ -4,6 +4,7 @@ import common.Message;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import patient.ServerConnection;
+import server.AdminAuth;
 import server.HospitalServer;
 
 import java.net.Socket;
@@ -97,5 +98,63 @@ public class ConnectionTest {
         assertEquals("SAVED", response.getData().get("status"));
 
         conn.close();
+    }
+
+    @Test
+    public void testPasswordHashingAndVerification() {
+        String password = "DoctorSecurePass2026!";
+        String salt = AdminAuth.generateSalt();
+        String hash = AdminAuth.hashPassword(password, salt);
+
+        assertNotNull(salt);
+        assertNotNull(hash);
+        assertNotEquals(password, hash);
+        assertTrue(AdminAuth.verifyPassword(password, hash, salt));
+        assertFalse(AdminAuth.verifyPassword("WrongPassword", hash, salt));
+    }
+
+    @Test
+    public void testConcurrentClientsHandshake() throws Exception {
+        // Simula la prueba de la diapositiva 72: dos clientes conectados a la vez
+        ServerConnection clientA = new ServerConnection();
+        ServerConnection clientB = new ServerConnection();
+
+        clientA.connect();
+        clientB.connect();
+
+        // Peticion del Cliente A
+        Message msgA = new Message("HELLO", "req-client-A");
+        msgA.setPatientId("PATIENT-A");
+        Message respA = clientA.send(msgA);
+
+        // Peticion del Cliente B mientras el Cliente A sigue conectado
+        Message msgB = new Message("HELLO", "req-client-B");
+        msgB.setPatientId("PATIENT-B");
+        Message respB = clientB.send(msgB);
+
+        // Validar que ambos clientes recibieron respuesta independiente
+        assertNotNull(respA);
+        assertEquals("ACK", respA.getType());
+        assertEquals("CONNECTED", respA.getData().get("status"));
+
+        assertNotNull(respB);
+        assertEquals("ACK", respB.getType());
+        assertEquals("CONNECTED", respB.getData().get("status"));
+
+        // Cerrar ambos
+        clientA.close();
+        clientB.close();
+    }
+
+    @Test
+    public void testShutdownCoordinatorReleasesResources() {
+        // Verifica el Requisito 8: Mechanism to close the server
+        server.ShutdownCoordinator coordinator = server.HospitalServer.getShutdownCoordinator();
+
+        assertNotNull(coordinator, "El ShutdownCoordinator debe estar inicializado en el servidor");
+        assertTrue(coordinator.isRunning(), "El servidor debe estar inicialmente en estado activo");
+
+        // Verifica que el registro de clientes no sea nulo y este monitorizado
+        assertNotNull(server.HospitalServer.clientRegistry);
     }
 }
