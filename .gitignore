@@ -1,0 +1,10 @@
+# Compilados de Maven (se regeneran con mvn compile)
+target/
+
+# Datos generados al ejecutar (cada uno tiene los suyos)
+data/
+data-demo/
+
+# Configuración local de IntelliJ
+.idea/
+*.iml
