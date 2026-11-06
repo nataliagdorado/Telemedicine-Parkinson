@@ -4,6 +4,9 @@ import common.Message;
 import common.MessageCodec;
 import common.ProtocolException;
 
+import server.data.Repository;
+import server.data.SignalStore;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -19,9 +22,10 @@ public class ClientHandler implements Runnable {
     private final Socket socket;
     private final CommandRouter router;
 
-    public ClientHandler(Socket socket) {
+    public ClientHandler(Socket socket, Repository repository, SignalStore signalStore) {
         this.socket = socket;
-        this.router = new CommandRouter();
+        // Router con el SessionManager compartido del servidor (el que ve la AdminConsole) y la persistencia compartida
+        this.router = new CommandRouter(HospitalServer.sessionManager, repository, signalStore);
     }
 
     @Override
@@ -29,7 +33,7 @@ public class ClientHandler implements Runnable {
         long threadId = Thread.currentThread().getId();
         LOGGER.info("[Thread " + threadId + "] Client session started for: " + socket.getRemoteSocketAddress());
 
-        //Añadida la siguientel inea despues. Al arrancar para conectar ClientRegistry y ClientHandler
+        //Añadida la siguiente línea después. Al arrancar para conectar ClientRegistry y ClientHandler
         HospitalServer.clientRegistry.register(this);
         try (
                 BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));

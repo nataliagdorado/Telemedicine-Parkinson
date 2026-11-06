@@ -1,8 +1,18 @@
 package server;
 
+import common.Config;
+import server.data.FileRepository;
+import server.data.FileSignalStore;
+import server.data.Repository;
+import server.data.RepositoryException;
+import server.data.SeedData;
+import server.data.SignalStore;
+
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.file.Path;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -16,6 +26,9 @@ public class HospitalServer {
 
     public static final int PORT = 9000;
 
+    // Carpeta donde se guardan en disco pacientes, síntomas, sesiones y señales (sobreviven al reinicio del servidor)
+    private static final Path DATA_DIR = Path.of(Config.get("data.dir", "data"));
+
     // Registro thread-safe para contabilizar y monitorizar los sockets fisicos de los clientes conectados
     public static final ClientRegistry clientRegistry = new ClientRegistry();
 
@@ -26,6 +39,21 @@ public class HospitalServer {
     private static ShutdownCoordinator shutdownCoordinator;
 
     public static void main(String[] args) {
+
+        // Persistencia: UNA sola instancia compartida por todos los ClientHandler.
+        // Si cada hilo creara la suya, el synchronized de cada una solo protegeria su propia copia del fichero
+        Repository repository;
+        SignalStore signalStore;
+        try {
+            repository = new FileRepository(DATA_DIR);
+            signalStore = new FileSignalStore(DATA_DIR.resolve("signals"));
+            int added = SeedData.loadIfMissing(repository);   // antes del accept(): aun solo existe el hilo main
+            LOGGER.info("Data in " + DATA_DIR.toAbsolutePath() + " (" + added + " seed patients added)");
+        } catch (RepositoryException e) {
+            LOGGER.log(Level.SEVERE, "Could not prepare persistence: server will not start", e);
+            return;   // sin persistencia no tiene sentido aceptar pacientes
+        }
+
         // Notifica en la consola del servidor que el proceso de START ha comenzado
         LOGGER.info("Starting Hospital Server on port " + PORT + "...");
 
@@ -58,7 +86,7 @@ public class HospitalServer {
                 Socket clientSocket = serverSocket.accept();
 
                 // Encapsula el socket del cliente aceptado en un manejador independiente de tareas
-                ClientHandler handler = new ClientHandler(clientSocket);
+                ClientHandler handler = new ClientHandler(clientSocket, repository, signalStore);
 
                 // Dispara un hilo dedicado exclusivo para ese cliente; permite atender a multiples usuarios concurrentemente.
                 new Thread(handler).start();
