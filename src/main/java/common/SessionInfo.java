@@ -34,7 +34,11 @@ public class SessionInfo implements Serializable {
         this.patientId = patientId;
         this.startTime = startTime;
         this.samplingRateHz = samplingRateHz;
-        this.channels = (channels == null) ? new int[0] : channels.clone();
+        if (channels == null) {
+            this.channels = new int[0];
+        } else {
+            this.channels = channels.clone();
+        }
     }
 
     // ---------- Transiciones de estado ----------
@@ -61,8 +65,10 @@ public class SessionInfo implements Serializable {
     }
 
     public Long getDurationSeconds() {
-        return (startTime == null || endTime == null) ? null
-                : Duration.between(startTime, endTime).getSeconds();
+        if (startTime == null || endTime == null) {
+            return null;
+        }
+        return Duration.between(startTime, endTime).getSeconds();
     }
 
 
@@ -86,7 +92,12 @@ public class SessionInfo implements Serializable {
         return samplingRateHz;
     }
 
-    public int[] getChannels()         { return channels == null ? new int[0] : channels.clone(); }
+    public int[] getChannels() {
+        if (channels == null) {
+            return new int[0];
+        }
+        return channels.clone();
+    }
 
     public String getSignalFile()      { return signalFile; }
 
@@ -109,7 +120,13 @@ public class SessionInfo implements Serializable {
         this.samplingRateHz = samplingRateHz;
     }
 
-    public void setChannels(int[] channels)          { this.channels = channels == null ? new int[0] : channels.clone(); }
+    public void setChannels(int[] channels) {
+        if (channels == null) {
+            this.channels = new int[0];
+        } else {
+            this.channels = channels.clone();
+        }
+    }
 
     public void setSignalFile(String signalFile)     { this.signalFile = signalFile; }
 

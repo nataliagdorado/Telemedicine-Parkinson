@@ -154,7 +154,10 @@ public class FileSignalStore implements SignalStore {
         }
         String noAccents = Normalizer.normalize(name, Normalizer.Form.NFD).replaceAll("\\p{M}", "");
         String safe = noAccents.replaceAll("[^A-Za-z0-9]+", "_").replaceAll("^_+|_+$", "");
-        return safe.isEmpty() ? "paciente" : safe;
+        if (safe.isEmpty()) {
+            return "paciente";
+        }
+        return safe;
     }
 }
 

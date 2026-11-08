@@ -51,7 +51,10 @@ public class Patient implements Serializable {
     }
 
     public Integer getYearsSinceDiagnosis() {
-        return (diagnosisYear == null) ? null : LocalDate.now().getYear() - diagnosisYear;
+        if (diagnosisYear == null) {
+            return null;
+        }
+        return LocalDate.now().getYear() - diagnosisYear;
     }
     public LocalDate getBirthDate() { return birthDate; }
 

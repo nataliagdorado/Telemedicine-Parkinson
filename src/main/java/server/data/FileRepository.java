@@ -135,11 +135,8 @@ public class FileRepository implements Repository {
     }
 
     /**
-     * Los parámetros que hay dentro de requiredId, que sé que son raros, son como un if
-     * anidado raro que se llama ternario que hace que no salte nullPointer exception si no, que sale uno de los errores que manejo en la
-     * clase de Repository exceptions
-     *    --> Ternario (if-else en una línea): si patient es null pasa null a requireId en vez de llamar
-     *        a null.getPatientId(), que daría NullPointerException. Así ambos casos dan "Falta patientId".
+     * Si patient es null se lanza "Falta patientId" antes de llamar a getPatientId(),
+     * que si no daria NullPointerException.
      * synchronized: solo un hilo (un ClientHandler) puede ejecutar a la vez un metodo de esta clase,
      * para que dos pacientes no lean y escriban el mismo fichero al mismo tiempo (p. ej. dos altas del mismo id).
      * @param patient
@@ -147,7 +144,10 @@ public class FileRepository implements Repository {
      */
     @Override
     public synchronized void savePatient(Patient patient) throws RepositoryException {
-        requireId(patient == null ? null : patient.getPatientId(), "patientId");
+        if (patient == null) {
+            throw new RepositoryException("Falta patientId");
+        }
+        requireId(patient.getPatientId(), "patientId");
         if (findPatient(patient.getPatientId()).isPresent()) {
             throw new RepositoryException("Ya existe el paciente " + patient.getPatientId());
         }
@@ -198,7 +198,10 @@ public class FileRepository implements Repository {
 
     @Override
     public synchronized void saveSession(SessionInfo info) throws RepositoryException {
-        requireId(info == null ? null : info.getSessionId(), "sessionId");
+        if (info == null) {
+            throw new RepositoryException("Falta sessionId");
+        }
+        requireId(info.getSessionId(), "sessionId");
         requirePatient(info.getPatientId());
         if (findSession(info.getSessionId()).isPresent()) {
             throw new RepositoryException("Ya existe la sesión " + info.getSessionId());
@@ -208,7 +211,10 @@ public class FileRepository implements Repository {
 
     @Override
     public synchronized void updateSession(SessionInfo info) throws RepositoryException {
-        requireId(info == null ? null : info.getSessionId(), "sessionId");
+        if (info == null) {
+            throw new RepositoryException("Falta sessionId");
+        }
+        requireId(info.getSessionId(), "sessionId");
         List<SessionInfo> all = readAll(sessionsFile, SessionInfo.class);
         for (int i = 0; i < all.size(); i++) {
             if (all.get(i).getSessionId().equals(info.getSessionId())) {
@@ -239,7 +245,10 @@ public class FileRepository implements Repository {
 
     @Override
     public synchronized void saveClinicalNote(ClinicalNote note) throws RepositoryException {
-        requireId(note == null ? null : note.getNoteId(), "noteId");
+        if (note == null) {
+            throw new RepositoryException("Falta noteId");
+        }
+        requireId(note.getNoteId(), "noteId");
         requirePatient(note.getPatientId());
         append(notesFile, note);
     }

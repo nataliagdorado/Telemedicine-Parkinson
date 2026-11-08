@@ -24,7 +24,7 @@ public class HospitalServer {
     // Instancia del logger para imprimir mensajes informativos1].
     private static final Logger LOGGER = Logger.getLogger(HospitalServer.class.getName());
 
-    public static final int PORT = 9000;
+    public static final int PORT = Config.getInt("server.port", 9000);
 
     // Carpeta donde se guardan en disco pacientes, síntomas, sesiones y señales (sobreviven al reinicio del servidor)
     private static final Path DATA_DIR = Path.of(Config.get("data.dir", "data"));

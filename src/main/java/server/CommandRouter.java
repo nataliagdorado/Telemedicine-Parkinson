@@ -17,10 +17,15 @@ public class CommandRouter {
 
     private static final Set<Integer> VALID_RATES = Set.of(1, 10, 100, 1000);
 
+    // Comandos que solo se aceptan después del LOGIN (llevan sessionToken)
+    private static final Set<String> PROTECTED_COMMANDS = Set.of("SYMPTOM_REPORT", "START_MONITORING", "SAMPLE_BLOCK", "STOP_MONITORING");
+
     // A VER, para q el router use este gestor
     private final SessionManager sessionManager;
     private final Repository repository;
     private final SignalStore signalStore;
+
+    private final Set<String> openSessions = new HashSet<>();
 
     // Unico constructor: el router no funciona sin sesiones ni persistencia, asi que se exige todo, si siguiesemos con el constructor vacío, alguien podría llamar al router sin tener los requisitos listos
     public CommandRouter(SessionManager sessionManager, Repository repository, SignalStore signalStore) {
@@ -28,19 +33,50 @@ public class CommandRouter {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.signalStore = Objects.requireNonNull(signalStore, "signalStore");
     }
+
+    // Devuelve el usuario al que pertenece el token, o null si falta o no es válido
+    private String authenticatedUser(Message request) {
+        String token = readString(request.getData(), "sessionToken");
+        if (token == null) {
+            return null;
+        }
+        SessionManager.ActiveSession session = sessionManager.getSession(token);
+        if (session == null) {
+            return null;
+        }
+        session.touch();   // actualiza el último acceso
+        return session.getUserId();
+    }
+
     public Message route(Message request) {
         if (request == null) {
-            return buildErrorResponse("UNKNOWN", "Request cannot be null");
+            return buildErrorResponse("UNKNOWN", ErrorCode.BAD_REQUEST, "Request cannot be null");
         }
 
         String action = request.getType();
         if (action == null || action.trim().isEmpty()) {
-            return buildErrorResponse(request.getRequestId(), "Missing action type");
+            return buildErrorResponse(request.getRequestId(), ErrorCode.BAD_REQUEST, "Missing action type");
         }
 
         LOGGER.info(() -> "Processing action [" + action + "] from client/patient: " + request.getPatientId());
 
-        switch (action.toUpperCase()) {
+        String command = action.toUpperCase();
+
+        // Comandos protegidos: el paciente se identifica por su token, no por lo que dice el mensaje
+        if (PROTECTED_COMMANDS.contains(command)) {
+            String userId = authenticatedUser(request);
+            if (userId == null) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.UNAUTHENTICATED,
+                        "Login required: missing or invalid sessionToken");
+            }
+            if (request.getPatientId() != null && !request.getPatientId().equals(userId)) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.UNAUTHENTICATED,
+                        "patientId does not match the session token");
+            }
+            request.setPatientId(userId);   // desde aqui, el patientId es el del token
+        }
+
+        switch (command) {
             case "HELLO":
                 return handleHello(request);
 
@@ -70,7 +106,7 @@ public class CommandRouter {
 
             default:
                 LOGGER.warning(() -> "Unknown command requested: " + action);
-                return buildErrorResponse(request.getRequestId(), "Command not supported: " + action);
+                return buildErrorResponse(request.getRequestId(), ErrorCode.UNSUPPORTED_TYPE, "Command not supported: " + action);
         }
     }
 
@@ -84,21 +120,40 @@ public class CommandRouter {
 
     private Message handleLogin(Message request) {
         Map<String, Object> data = request.getData();
-        String role = data != null && data.get("role") != null ? String.valueOf(data.get("role")) : "PATIENT";
+        Role role = Role.PATIENT;
+        String roleText = readString(data, "role");
+        if (roleText != null){
+            try {
+                role = Role.valueOf(roleText.trim().toUpperCase());
+            }catch (IllegalArgumentException e) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.INVALID_FIELD,
+                        "Unknown role: " + roleText + " (allowed: PATIENT, DOCTOR, ADMIN)");
+            }
+        }
         String id = request.getPatientId() != null ? request.getPatientId() : (data != null && data.get("id") != null ? String.valueOf(data.get("id")) : "UNKNOWN");
 
         if ("UNKNOWN".equals(id) || id.trim().isEmpty()) {
-            return buildErrorResponse(request.getRequestId(), "Authentication failed: Missing ID");
+            return buildErrorResponse(request.getRequestId(), ErrorCode.UNAUTHENTICATED, "Authentication failed: Missing ID");
+        }
+        if (role == Role.PATIENT){
+            try {
+                if (repository.findPatient(id).isEmpty()){
+                    return buildErrorResponse(request.getRequestId(),ErrorCode.UNKNOWN_PATIENT, "Unknown patient: "+ id);
+                }
+            }catch (RepositoryException e) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR,
+                        "Could not read patient: " + e.getMessage());
+            }
         }
 
         // Creamos la sesion de verdad en el SessionManager
-        String sessionToken = sessionManager.createSession(id, role);
+        String sessionToken = sessionManager.createSession(id, role.name());
 
         Message response = new Message("LOGIN_RESPONSE", request.getRequestId());
         response.setPatientId(id);
         response.setStatus("SUCCESS");
         response.addData("authenticated", true);
-        response.addData("role", role);
+        response.addData("role", role.name());
         response.addData("sessionToken", sessionToken);
         return response;
     }
@@ -106,7 +161,14 @@ public class CommandRouter {
     private Message handleSymptomReport(Message request) {
         // Compruebo si el mensaje trae datos
         if (request.getData() == null || request.getData().isEmpty()){
-            return buildErrorResponse(request.getRequestId(), "Symptom report without data");
+            return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD, "Symptom report without data");
+        }
+
+        // Comprobar que llegan los campos obligatorios ANTES de convertir: si no, Gson pondria 0/false
+        List<String> problems = checkSymptomFields(request.getData());
+        if (!problems.isEmpty()) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD,
+                    "Incomplete symptom report: " + String.join("; ", problems));
         }
 
         // Convertir el mapa de data n un SymptomReport
@@ -114,7 +176,7 @@ public class CommandRouter {
         try {
             report = MessageCodec.fromJson(MessageCodec.toJson(request.getData()), SymptomReport.class);
         } catch (ProtocolException e) {
-            return buildErrorResponse(request.getRequestId(), "Malformed symptom report: "+ e.getMessage());
+            return buildErrorResponse(request.getRequestId(), ErrorCode.BAD_REQUEST, "Malformed symptom report: "+ e.getMessage());
         }
 
         // Datos del servidor
@@ -127,7 +189,7 @@ public class CommandRouter {
         // Una validación más en el servidor
         List<String> errors = SymptomValidator.validate(report);
         if (!errors.isEmpty()) {
-            return buildErrorResponse(request.getRequestId(), "Invalid symptom report: " + String.join("; ", errors));
+            return buildErrorResponse(request.getRequestId(), ErrorCode.INVALID_FIELD, "Invalid symptom report: " + String.join("; ", errors));
         }
 
         //Guardar
@@ -135,7 +197,7 @@ public class CommandRouter {
             repository.saveSymptomReport(report);
         }catch (RepositoryException e){
             LOGGER.warning("Could not save the report of "+ report.getPatientId()+ ": " + e.getMessage());
-            return buildErrorResponse(request.getRequestId(), "Could not save report: " + e.getMessage());
+            return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR, "Could not save report: " + e.getMessage());
         }
 
         //Si tot ha ido bien ahora se pone en saved
@@ -157,21 +219,21 @@ public class CommandRouter {
         try{
             Optional<Patient> found = repository.findPatient(patientId);
             if(found.isEmpty()){
-                return buildErrorResponse(request.getRequestId(), "Unknown patient: " + patientId);
+                return buildErrorResponse(request.getRequestId(), ErrorCode.UNKNOWN_PATIENT, "Unknown patient: " + patientId);
             }
             patient = found.get();
         }catch (RepositoryException e) {
-            return buildErrorResponse(request.getRequestId(), "Could not read patient: " + e.getMessage());
+            return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR, "Could not read patient: " + e.getMessage());
         }
 
         //Leer y validar los parámetros de la grabación
         Integer samplingRate = readInt(data, "samplingRateHz");
         int[] channels = readIntArray(data, "channels");
         if (samplingRate == null || !VALID_RATES.contains(samplingRate)) {
-            return buildErrorResponse(request.getRequestId(), "Invalid samplingRateHz (allowed: 1, 10, 100, 1000)");
+            return buildErrorResponse(request.getRequestId(), ErrorCode.INVALID_FIELD, "Invalid samplingRateHz (allowed: 1, 10, 100, 1000)");
         }
         if (channels == null || channels.length == 0) {
-            return buildErrorResponse(request.getRequestId(), "Missing channels");
+            return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD, "Missing channels");
         }
 
         //Crear la sesion: el id lo genera el servidor
@@ -189,10 +251,11 @@ public class CommandRouter {
             }
         } catch (RepositoryException e) {
             LOGGER.warning("Could not start session for " + patientId + ": " + e.getMessage());
-            return buildErrorResponse(request.getRequestId(), "Could not start session: " + e.getMessage());
+            return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR, "Could not start session: " + e.getMessage());
         }
 
         LOGGER.info("Session " + info.getSessionId() + " started for " + patientId);
+        openSessions.add(info.getSessionId());   // esta conexión es la dueña de la sesión
 
         // 5) Responder con el sessionId que el paciente usara en cada SAMPLE_BLOCK
         Message response = new Message("ACK", request.getRequestId());
@@ -211,14 +274,19 @@ public class CommandRouter {
             sessionId = (String) data.get("sessionId");
         }
         if (sessionId == null || sessionId.isBlank()) {
-            return buildErrorResponse(request.getRequestId(), "Sample block without sessionId");
+            return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD, "Sample block without sessionId");
+        }
+        // Solo se aceptan bloques de sesiones abiertas por esta misma conexion
+        if (!openSessions.contains(sessionId)) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.UNKNOWN_SESSION,
+                    "Unknown session: " + sessionId);
         }
         List<Integer> emg = readIntList(data, "emg");
         List<Integer> accX = readIntList(data, "accX");
         List<Integer> accY = readIntList(data, "accY");
         List<Integer> accZ = readIntList(data, "accZ");
         if (emg == null || accX == null || accY == null || accZ == null) {
-            return buildErrorResponse(request.getRequestId(), "Sample block with missing or invalid channels");
+            return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD, "Sample block with missing or invalid channels");
         }
 
         // 3) Escribir en el CSV de esa sesion
@@ -226,7 +294,7 @@ public class CommandRouter {
         try {
             signalStore.appendBlock(block);   // falla si la sesion no esta abierta o los canales no miden lo mismo
         } catch (RepositoryException e) {
-            return buildErrorResponse(request.getRequestId(), "Could not store samples: " + e.getMessage());
+            return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR, "Could not store samples: " + e.getMessage());
         }
 
         // 4) Confirmar: para el paciente, un ACK significa "bloque guardado, manda el siguiente"
@@ -243,18 +311,23 @@ public class CommandRouter {
         String sessionId = readString(data, "sessionId");
         String reason = readString(data, "reason");
         if (sessionId == null || sessionId.isBlank()) {
-            return buildErrorResponse(request.getRequestId(), "Stop without sessionId");
+            return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD, "Stop without sessionId");
         }
 
         SessionInfo info;
         try {
             Optional<SessionInfo> found = repository.findSession(sessionId);
             if (found.isEmpty()) {
-                return buildErrorResponse(request.getRequestId(), "Unknown session: " + sessionId);
+                return buildErrorResponse(request.getRequestId(), ErrorCode.UNKNOWN_SESSION, "Unknown session: " + sessionId);
             }
             info = found.get();
         } catch (RepositoryException e) {
-            return buildErrorResponse(request.getRequestId(), "Could not read session: " + e.getMessage());
+            return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR, "Could not read session: " + e.getMessage());
+        }
+        // Una sesion solo la puede cerrar su paciente
+        if (!request.getPatientId().equals(info.getPatientId())) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.UNKNOWN_SESSION,
+                    "Unknown session: " + sessionId);
         }
 
         if (info.getStatus() == SessionStatus.RECORDING) {
@@ -274,10 +347,11 @@ public class CommandRouter {
                 repository.updateSession(info);
             } catch (RepositoryException e) {
                 LOGGER.warning("Could not stop session " + sessionId + ": " + e.getMessage());
-                return buildErrorResponse(request.getRequestId(), "Could not stop session: " + e.getMessage());
+                return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR, "Could not stop session: " + e.getMessage());
             }
             LOGGER.info("Session " + sessionId + " finished: " + info.getStatus() + " (reason " + reason + ")");
         }
+        openSessions.remove(sessionId);   // esta conexión ya no la tiene abierta
 
         Message response = new Message("ACK", request.getRequestId());
         response.setPatientId(info.getPatientId());
@@ -294,10 +368,11 @@ public class CommandRouter {
         return response;
     }
 
-    private Message buildErrorResponse(String requestId, String detail) {
+    private Message buildErrorResponse(String requestId, ErrorCode code, String detail) {
         Message error = new Message("ERROR", requestId);
         error.setStatus("FAILED");
-        error.addData("error", detail);
+        error.addData("code", code.name());   // codigo fijo, documentado en el protocolo
+        error.addData("error", detail);       // texto para la persona: PatientApp lo muestra tal cual
         return error;
     }
 
@@ -352,5 +427,35 @@ public class CommandRouter {
             return (String) value;
         }
         return null;
+    }
+
+    // Campos obligatorios de un SYMPTOM_REPORT. Si faltan, Gson pondria 0 o false sin avisar
+    private static List<String> checkSymptomFields(Map<String, Object> data) {
+        List<String> problems = new ArrayList<>();
+        checkInteger(data, "rigidityLevel", problems);
+        checkInteger(data, "tremorLevel", problems);
+        checkBoolean(data, "medicationTaken", problems);
+        checkBoolean(data, "freezingEpisodes", problems);
+        return problems;
+    }
+
+    private static void checkInteger(Map<String, Object> data, String key, List<String> problems) {
+        Object value = data.get(key);
+        if (value == null) {
+            problems.add(key + " is missing");
+        } else if (!(value instanceof Number)) {
+            problems.add(key + " must be a number");
+        } else if (((Number) value).doubleValue() % 1 != 0) {
+            problems.add(key + " must be a whole number");
+        }
+    }
+
+    private static void checkBoolean(Map<String, Object> data, String key, List<String> problems) {
+        Object value = data.get(key);
+        if (value == null) {
+            problems.add(key + " is missing");
+        } else if (!(value instanceof Boolean)) {
+            problems.add(key + " must be true or false");
+        }
     }
 }

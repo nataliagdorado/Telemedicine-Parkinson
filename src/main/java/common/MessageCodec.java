@@ -21,7 +21,10 @@ public class MessageCodec {
             .registerTypeAdapter(LocalDateTime.class, new JsonSerializer<LocalDateTime>() {
                 @Override
                 public JsonElement serialize(LocalDateTime src, Type typeOfSrc, JsonSerializationContext context) {
-                    return src == null ? JsonNull.INSTANCE : new JsonPrimitive(src.format(LOCAL_DATE_TIME));
+                    if (src == null) {
+                        return JsonNull.INSTANCE;
+                    }
+                    return new JsonPrimitive(src.format(LOCAL_DATE_TIME));
                 }
             })
             .registerTypeAdapter(LocalDateTime.class, new JsonDeserializer<LocalDateTime>() {
@@ -35,7 +38,10 @@ public class MessageCodec {
             .registerTypeAdapter(LocalDate.class, new JsonSerializer<LocalDate>() {
                 @Override
                 public JsonElement serialize(LocalDate src, Type typeOfSrc, JsonSerializationContext context) {
-                    return src == null ? JsonNull.INSTANCE : new JsonPrimitive(src.format(LOCAL_DATE));
+                    if (src == null) {
+                        return JsonNull.INSTANCE;
+                    }
+                    return new JsonPrimitive(src.format(LOCAL_DATE));
                 }
             })
             // [NUEVO] texto -> LocalDate

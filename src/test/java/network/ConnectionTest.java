@@ -8,6 +8,7 @@ import server.AdminAuth;
 import server.HospitalServer;
 
 import java.net.Socket;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -33,6 +34,15 @@ public class ConnectionTest {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    // Hace LOGIN igual que PatientApp y devuelve el token
+    private String login(ServerConnection conn, String patientId) throws Exception {
+        Message login = new Message("LOGIN", "req-login-" + patientId);
+        login.setPatientId(patientId);
+        login.addData("role", "PATIENT");
+        Message response = conn.send(login);
+        return (String) response.getData().get("sessionToken");
     }
 
     @Test
@@ -62,7 +72,7 @@ public class ConnectionTest {
         conn.connect();
 
         Message loginMsg = new Message("LOGIN", "req-login");
-        loginMsg.setPatientId("PATIENT-101");
+        loginMsg.setPatientId("P001");                  // paciente que existe (SeedData)
         loginMsg.addData("role", "PATIENT");
 
         Message response = conn.send(loginMsg);
@@ -83,12 +93,15 @@ public class ConnectionTest {
     public void testSymptomReportRecordedSuccessfully() throws Exception {
         ServerConnection conn = new ServerConnection();
         conn.connect();
+        String token = login(conn, "P001");
 
         Message symptomMsg = new Message("SYMPTOM_REPORT", "req-symptom");
-        symptomMsg.setPatientId("PATIENT-101");
-        symptomMsg.addData("tremorSeverity", 3);
-        symptomMsg.addData("rigidityLevel", "MODERATE");
+        symptomMsg.setPatientId("P001");                 // paciente que existe (SeedData)
+        symptomMsg.addData("rigidityLevel", 2);
+        symptomMsg.addData("tremorLevel", 3);
         symptomMsg.addData("medicationTaken", true);
+        symptomMsg.addData("freezingEpisodes", false);
+        symptomMsg.addData("sessionToken", token);
 
         Message response = conn.send(symptomMsg);
 
@@ -96,6 +109,152 @@ public class ConnectionTest {
         assertEquals("ACK", response.getType());
         assertEquals("RECORDED", response.getStatus());
         assertEquals("SAVED", response.getData().get("status"));
+
+        conn.close();
+    }
+
+    @Test
+    public void testIncompleteSymptomReportIsRejected() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = login(conn, "P001");
+
+        Message msg = new Message("SYMPTOM_REPORT", "req-incomplete");
+        msg.setPatientId("P001");
+        msg.addData("rigidityLevel", "MODERATE");   // tipo incorrecto
+        msg.addData("sessionToken", token);
+        // faltan tremorLevel, medicationTaken y freezingEpisodes
+
+        Message response = conn.send(msg);
+
+        assertNotNull(response);
+        assertEquals("ERROR", response.getType());
+        assertEquals("MISSING_FIELD", response.getData().get("code"));
+
+        conn.close();
+    }
+
+    @Test
+    public void testSymptomReportWithoutLoginIsRejected() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+
+        Message msg = new Message("SYMPTOM_REPORT", "req-nologin");
+        msg.setPatientId("P001");
+        msg.addData("rigidityLevel", 2);
+        msg.addData("tremorLevel", 3);
+        msg.addData("medicationTaken", true);
+        msg.addData("freezingEpisodes", false);
+        // sin sessionToken
+
+        Message response = conn.send(msg);
+
+        assertEquals("ERROR", response.getType());
+        assertEquals("UNAUTHENTICATED", response.getData().get("code"));
+
+        conn.close();
+    }
+
+    @Test
+    public void testCannotSendDataAsAnotherPatient() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = login(conn, "P001");          // pulsera de P001...
+
+        Message msg = new Message("SYMPTOM_REPORT", "req-impostor");
+        msg.setPatientId("P002");                    // ...pero dice ser P002
+        msg.addData("sessionToken", token);
+        msg.addData("rigidityLevel", 2);
+        msg.addData("tremorLevel", 3);
+        msg.addData("medicationTaken", true);
+        msg.addData("freezingEpisodes", false);
+
+        Message response = conn.send(msg);
+
+        assertEquals("ERROR", response.getType());
+        assertEquals("UNAUTHENTICATED", response.getData().get("code"));
+
+        conn.close();
+    }
+
+    @Test
+    public void testCannotWriteIntoAnotherPatientsSession() throws Exception {
+        // P001 abre una sesion
+        ServerConnection connA = new ServerConnection();
+        connA.connect();
+        String tokenA = login(connA, "P001");
+        Message start = new Message("START_MONITORING", "req-start-A");
+        start.addData("sessionToken", tokenA);
+        start.addData("samplingRateHz", 1000);
+        start.addData("channels", List.of(0, 1, 2, 3));
+        Message started = connA.send(start);
+        assertEquals("ACK", started.getType());
+        String sessionA = (String) started.getData().get("sessionId");
+
+        // P002, con su propio login, intenta escribir en la sesion de P001
+        ServerConnection connB = new ServerConnection();
+        connB.connect();
+        String tokenB = login(connB, "P002");
+        Message block = new Message("SAMPLE_BLOCK", "req-block-B");
+        block.addData("sessionToken", tokenB);
+        block.addData("sessionId", sessionA);
+        block.addData("emg", List.of(512, 513));
+        block.addData("accX", List.of(500, 501));
+        block.addData("accY", List.of(500, 501));
+        block.addData("accZ", List.of(500, 501));
+        Message rejected = connB.send(block);
+        assertEquals("ERROR", rejected.getType());
+        assertEquals("UNKNOWN_SESSION", rejected.getData().get("code"));
+
+        // P002 tampoco puede cerrarla
+        Message stopB = new Message("STOP_MONITORING", "req-stop-B");
+        stopB.addData("sessionToken", tokenB);
+        stopB.addData("sessionId", sessionA);
+        stopB.addData("reason", "USER");
+        assertEquals("UNKNOWN_SESSION", connB.send(stopB).getData().get("code"));
+
+        // P001 si puede cerrarla
+        Message stopA = new Message("STOP_MONITORING", "req-stop-A");
+        stopA.addData("sessionToken", tokenA);
+        stopA.addData("sessionId", sessionA);
+        stopA.addData("reason", "USER");
+        assertEquals("ACK", connA.send(stopA).getType());
+
+        connA.close();
+        connB.close();
+    }
+
+    @Test
+    public void testLoginWithUnknownPatientIsRejected() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+
+        Message loginMsg = new Message("LOGIN", "req-login-unknown");
+        loginMsg.setPatientId("p001");                  // minusculas: no existe en SeedData
+        loginMsg.addData("role", "PATIENT");
+
+        Message response = conn.send(loginMsg);
+
+        assertEquals("ERROR", response.getType());
+        assertEquals("UNKNOWN_PATIENT", response.getData().get("code"));
+        assertNull(response.getData().get("sessionToken"));   // no se entrega token
+
+        conn.close();
+    }
+
+    @Test
+    public void testLoginWithInvalidRoleIsRejected() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+
+        Message loginMsg = new Message("LOGIN", "req-login-role");
+        loginMsg.setPatientId("P001");
+        loginMsg.addData("role", "PATEINT");            // rol mal escrito
+
+        Message response = conn.send(loginMsg);
+
+        assertEquals("ERROR", response.getType());
+        assertEquals("INVALID_FIELD", response.getData().get("code"));
 
         conn.close();
     }
