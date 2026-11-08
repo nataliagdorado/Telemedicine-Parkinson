@@ -13,6 +13,8 @@ import common.SessionInfo;
  * Cada bloque se escribe en el disco al llegar (flush): si el paciente se desconecta, se mantiene lo recibido
  */
 public interface SignalStore extends AutoCloseable{
+    /** Unidades de las muestras guardadas: valores en bruto del ADC del BITalino (10 bits, 0-1023). */
+    String UNITS = "ADC_10bit";
     /**
      * Crea el fichero de la sesión y escribe su cabecera.
      * @return la ruta del fichero creado, para guardarla en SessionInfo.signalFile

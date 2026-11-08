@@ -15,6 +15,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Locale;
 
 /**
  * Guarda las muestras de cada sesión en su propio CSV:
@@ -23,17 +24,19 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class FileSignalStore implements SignalStore {
     private static final DateTimeFormatter FILE_DATE = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
-    private static final String COLUMNS = "nSeq,EMG,ACC_X,ACC_Y,ACC_Z";
+    private static final String COLUMNS = "nSeq,t_s,EMG,ACC_X,ACC_Y,ACC_Z";
 
     /** Estado de una grabación abierta: su fichero y el número de la siguiente muestra.
      * Hago esta clase que lee los bloques de BITalino dentro de esta clase porque es la única que lo va a usar
      * */
     private static final class Recording {
         final BufferedWriter writer;
+        final int samplingRateHz;   // para calcular t_s = nSeq / fs
         long nextSample = 0;
 
-        Recording(BufferedWriter writer) {
+        Recording(BufferedWriter writer, int samplingRateHz) {
             this.writer = writer;
+            this.samplingRateHz = samplingRateHz;
         }
     }
 
@@ -72,10 +75,24 @@ public class FileSignalStore implements SignalStore {
             writer.newLine();
             writer.write("# session=" + info.getSessionId() + "; start=" + info.getStartTime() + "; fs=" + info.getSamplingRateHz() + " Hz; channels=" + Arrays.toString(info.getChannels()));
             writer.newLine();
+            String[] columnNames = {"EMG", "ACC_X", "ACC_Y", "ACC_Z"};
+            int[] channels = info.getChannels();
+            StringBuilder mapping = new StringBuilder("# channels:");
+            for(int i = 0; i < columnNames.length && i < channels.length; i++){
+                mapping.append(" ").append(columnNames[i]).append("=A").append(channels[i]+1);
+            }
+            writer.write(mapping.toString());
+            writer.newLine();
+            writer.write("# units=" + UNITS + ": raw BITalino ADC values (0-1023), no processing applied");
+            writer.newLine();
+            writer.write("# EMG(mV) = (ADC/1024 - 0.5) * 3300 / 1009 ; ACC(g) = 2*(ADC - Cmin)/(Cmax - Cmin) - 1 (Cmin, Cmax: calibration of each device)");
+            writer.newLine();
+            writer.write("# t_s = seconds since start (nSeq / fs); absolute time = start + t_s");
+            writer.newLine();
             writer.write(COLUMNS);
             writer.newLine();
             writer.flush();
-            open.put(info.getSessionId(), new Recording(writer));
+            open.put(info.getSessionId(), new Recording(writer, info.getSamplingRateHz()));
         } catch (IOException e) {
             throw new RepositoryException("No se pudo crear el fichero de señal " + file, e);
         }
@@ -103,8 +120,12 @@ public class FileSignalStore implements SignalStore {
         synchronized (rec) {                                        // cerrojo de ESTA sesión
             try {
                 for (int i = 0; i < emg.size(); i++) {
-                    rec.writer.write(rec.nextSample++ + "," + emg.get(i) + "," + x.get(i) + "," + y.get(i) + "," + z.get(i));
+                    long nSeq = rec.nextSample;
+                    double t = (double) nSeq / rec.samplingRateHz;          // (double): evita la división entera
+                    String time = String.format(Locale.ROOT, "%.3f", t);    // Locale.ROOT: punto decimal siempre
+                    rec.writer.write(nSeq + "," + time + "," + emg.get(i) + "," + x.get(i) + "," + y.get(i) + "," + z.get(i));
                     rec.writer.newLine();
+                    rec.nextSample++;
                 }
                 rec.writer.flush();                                 // a disco ya: sobrevive a una desconexión
             } catch (IOException e) {

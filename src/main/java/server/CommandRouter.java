@@ -25,7 +25,8 @@ public class CommandRouter {
     private final Repository repository;
     private final SignalStore signalStore;
 
-    private final Set<String> openSessions = new HashSet<>();
+    private final Map<String, SessionInfo> openSessions = new HashMap<>();
+    private final Map<String, Long> expectedSeq = new HashMap<>();
 
     // Unico constructor: el router no funciona sin sesiones ni persistencia, asi que se exige todo, si siguiesemos con el constructor vacío, alguien podría llamar al router sin tener los requisitos listos
     public CommandRouter(SessionManager sessionManager, Repository repository, SignalStore signalStore) {
@@ -259,7 +260,8 @@ public class CommandRouter {
         }
 
         LOGGER.info("Session " + info.getSessionId() + " started for " + patientId);
-        openSessions.add(info.getSessionId());   // esta conexión es la dueña de la sesión
+        openSessions.put(info.getSessionId(), info);   // esta conexión es la dueña de la sesión
+        expectedSeq.put(info.getSessionId(), 0L);
 
         // 5) Responder con el sessionId que el paciente usara en cada SAMPLE_BLOCK
         Message response = new Message("ACK", request.getRequestId());
@@ -280,11 +282,45 @@ public class CommandRouter {
         if (sessionId == null || sessionId.isBlank()) {
             return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD, "Sample block without sessionId");
         }
-        // Solo se aceptan bloques de sesiones abiertas por esta misma conexion
-        if (!openSessions.contains(sessionId)) {
+        // Solo se aceptan bloques de sesiones abiertas por esta misma conexión
+        SessionInfo session = openSessions.get(sessionId);
+        if (session == null) {
             return buildErrorResponse(request.getRequestId(), ErrorCode.UNKNOWN_SESSION,
                     "Unknown session: " + sessionId);
         }
+
+        // El bloque debe venir a en las mismas unidades y frequencia que su sesión
+        String units = readString(data, "units");
+        if(units == null){
+            return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD,
+                    "Sample block without units");
+        }
+        if (!SignalStore.UNITS.equals(units)) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.INVALID_FIELD,
+                    "Unsupported units: " + units + " (expected " + SignalStore.UNITS + ")");
+        }
+
+        Integer rate = readInt(data, "samplingRateHz");
+        if (rate == null) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD,
+                    "Sample block without samplingRateHz");
+        }
+        if (rate != session.getSamplingRateHz()) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.INVALID_FIELD,
+                    "samplingRateHz " + rate + " does not match the session (" + session.getSamplingRateHz() + " Hz)");
+        }
+
+        Long firstSeq = readLong(data, "firstSeq");
+        if (firstSeq == null) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD,
+                    "Sample block without firstSeq");
+        }
+        long expected = expectedSeq.get(sessionId);
+        if (firstSeq != expected) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.INVALID_FIELD,
+                    "Unexpected firstSeq " + firstSeq + " (expected " + expected + "): duplicated or missing block");
+        }
+
         List<Integer> emg = readIntList(data, "emg");
         List<Integer> accX = readIntList(data, "accX");
         List<Integer> accY = readIntList(data, "accY");
@@ -300,6 +336,8 @@ public class CommandRouter {
         } catch (RepositoryException e) {
             return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR, "Could not store samples: " + e.getMessage());
         }
+
+        expectedSeq.put(sessionId, expected + emg.size());
 
         // 4) Confirmar: para el paciente, un ACK significa "bloque guardado, manda el siguiente"
         Message response = new Message("ACK", request.getRequestId());
@@ -356,6 +394,7 @@ public class CommandRouter {
             LOGGER.info("Session " + sessionId + " finished: " + info.getStatus() + " (reason " + reason + ")");
         }
         openSessions.remove(sessionId);   // esta conexión ya no la tiene abierta
+        expectedSeq.remove(sessionId);
 
         Message response = new Message("ACK", request.getRequestId());
         response.setPatientId(info.getPatientId());
@@ -371,7 +410,7 @@ public class CommandRouter {
      */
 
     public void closeOpenSessions(){
-        for (String sessionId : openSessions){
+        for (String sessionId : openSessions.keySet()){
             try {
                 signalStore.closeRecording(sessionId);
                 Optional<SessionInfo> found = repository.findSession(sessionId);
@@ -387,6 +426,7 @@ public class CommandRouter {
             }
         }
         openSessions.clear();
+        expectedSeq.clear();
     }
 
     private Message handlePing(Message request) {
@@ -410,6 +450,17 @@ public class CommandRouter {
         Object value = data.get(key);
         if (value instanceof Number){
             return((Number)value).intValue();
+        }
+        return null;
+    }
+
+    private static Long readLong(Map<String, Object> data, String key) {
+        if (data == null) {
+            return null;
+        }
+        Object value = data.get(key);
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
         }
         return null;
     }
