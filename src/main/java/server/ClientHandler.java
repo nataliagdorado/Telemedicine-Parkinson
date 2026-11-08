@@ -49,8 +49,13 @@ public class ClientHandler implements Runnable {
 
                 try {
                     Message request = MessageCodec.decode(jsonLine);
-                    LOGGER.info("[Thread " + threadId + "] Received: type=" + request.getType()
-                            + ", requestId=" + request.getRequestId());
+                    String receivedText = "[Thread " + threadId + "] Received: type=" + request.getType()
+                            + ", requestId=" + request.getRequestId();
+                    if ("SAMPLE_BLOCK".equals(request.getType())) {
+                        LOGGER.fine(receivedText);   // 10 por segundo: no se muestra por defecto
+                    } else {
+                        LOGGER.info(receivedText);
+                    }
 
                     // Despachar la peticion al CommandRouter desacoplado
                     Message response = router.route(request);
@@ -70,6 +75,7 @@ public class ClientHandler implements Runnable {
         } catch (IOException ex) {
             LOGGER.log(Level.WARNING, "[Thread " + threadId + "] Client connection error: " + ex.getMessage());
         } finally {
+            router.closeOpenSessions();
 
             // Conectar ClientRegistry en HospitalServer y ClientHandler
             HospitalServer.clientRegistry.unregister(this);

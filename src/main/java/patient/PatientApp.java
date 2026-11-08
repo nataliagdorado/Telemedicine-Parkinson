@@ -183,7 +183,7 @@ public class PatientApp {
 
             //c) Lanzar la grabacion en un hilo secundario
             MonitoringSessionController controller = new MonitoringSessionController(source, connection,
-                    patientId, sessionToken, sessionId, DURATION_SECONDS, SAMPLING_RATE, CHANNELS);
+                    sessionToken, patientId, sessionId, DURATION_SECONDS, SAMPLING_RATE, CHANNELS);
             Thread recordingThread = new Thread(controller, "recording-" + sessionId);
             recordingThread.start();
 

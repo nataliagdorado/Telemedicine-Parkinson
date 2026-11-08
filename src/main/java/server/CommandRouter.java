@@ -58,7 +58,11 @@ public class CommandRouter {
             return buildErrorResponse(request.getRequestId(), ErrorCode.BAD_REQUEST, "Missing action type");
         }
 
-        LOGGER.info(() -> "Processing action [" + action + "] from client/patient: " + request.getPatientId());
+        if ("SAMPLE_BLOCK".equalsIgnoreCase(action)) {
+            LOGGER.fine(() -> "Processing action [" + action + "] from client/patient: " + request.getPatientId());
+        } else {
+            LOGGER.info(() -> "Processing action [" + action + "] from client/patient: " + request.getPatientId());
+        }
 
         String command = action.toUpperCase();
 
@@ -360,6 +364,29 @@ public class CommandRouter {
         response.addData("sessionStatus", info.getStatus().name());
         response.addData("durationSeconds", info.getDurationSeconds());
         return response;
+    }
+
+    /**
+     * Se llama desde el finally de ClientHandler: las sesiones abiertas de esta conexión pasan a INCOMPLETE
+     */
+
+    public void closeOpenSessions(){
+        for (String sessionId : openSessions){
+            try {
+                signalStore.closeRecording(sessionId);
+                Optional<SessionInfo> found = repository.findSession(sessionId);
+                if (found.isPresent() && found.get().getStatus() == SessionStatus.RECORDING){
+                    SessionInfo info = found.get();
+                    info.markIncomplete(LocalDateTime.now());
+                    repository.updateSession(info);
+                    LOGGER.info("Session " + sessionId + " marked INCOMPLETE (client disconnected)");
+                }
+            } catch (RepositoryException e) {
+                // Seguimos con las demás: un fallo no debe dejar el resto abiertas
+                LOGGER.warning("Could not close session " + sessionId + ": " + e.getMessage());
+            }
+        }
+        openSessions.clear();
     }
 
     private Message handlePing(Message request) {
