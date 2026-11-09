@@ -28,4 +28,11 @@ public class Config {
             return defaultValue;
         }
     }
+    public static double getDouble(String key, double defaultValue) {
+        try {
+            return Double.parseDouble(properties.getProperty(key, String.valueOf(defaultValue)));
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
 }
