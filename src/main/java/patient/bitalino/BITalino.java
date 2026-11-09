@@ -7,6 +7,7 @@ import javax.microedition.io.StreamConnection; // <-- Proviene de BlueCove
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.PropertyResourceBundle;
 import java.util.Vector;
 
 public class BITalino {
@@ -46,6 +47,13 @@ public class BITalino {
         if (connection != null) {
             throw new BITalinoException(BITalinoErrorTypes.DEVICE_NOT_IDLE);
         }
+        if(macAddress==null||macAddress.isBlank()){
+            throw new BITalinoException(BITalinoErrorTypes.INVALID_PARAMETER);
+        }
+        if (samplingRate!=1 && samplingRate!=10 && samplingRate!=100 && samplingRate != 1000){
+            throw new BITalinoException(BITalinoErrorTypes.INVALID_PARAMETER);
+        }
+
         this.samplingRate = samplingRate;
         try {
             String url = "btspp://" + macAddress.replace(":", "").replace("-", "") + ":1;authenticate=false;encrypt=false;master=false";
@@ -55,7 +63,12 @@ public class BITalino {
 
             // Pausa de estabilización tras abrir la conexión
             Thread.sleep(2000);
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            closeQuietly();
+            throw new BITalinoException(BITalinoErrorTypes.PORT_COULD_NOT_BE_OPENED);
+        }catch (Exception e){
+            closeQuietly();//si falló a la mitad
             throw new BITalinoException(BITalinoErrorTypes.PORT_COULD_NOT_BE_OPENED);
         }
     }
@@ -213,24 +226,45 @@ public class BITalino {
         try {
             oStream.write(0x00); // Comando de parada
             oStream.flush();
-            isAcquiring = false;
         } catch (IOException e) {
             throw new BITalinoException(BITalinoErrorTypes.UNDEFINED_ERROR);
+        }finally {
+            isAcquiring=false; //aunque falle el envío, para la app, la adquisición ya ha terminado
         }
     }
 
     public void close() throws BITalinoException {
+        boolean failed=false;
+        //Cada recurso se cierra en su propio try `para que si uno falla, el resto se cierre igualmente
         try {
-            if (iStream != null) iStream.close();
-            if (oStream != null) oStream.close();
-            if (connection != null) connection.close();
-        } catch (IOException e) {
+            if(iStream!=null)iStream.close();
+        }catch (IOException e){
+            failed=true;
+        }
+        try {
+            if(oStream!=null)oStream.close();
+        }catch (IOException e){
+            failed=true;
+        }
+        try {
+            if(connection!=null)connection.close();
+        }catch (IOException e){
+            failed=true;
+        }
+
+        iStream=null;
+        oStream=null;
+        connection=null;
+        isAcquiring=false;
+        if(failed){
             throw new BITalinoException(BITalinoErrorTypes.UNDEFINED_ERROR);
-        } finally {
-            iStream = null;
-            oStream = null;
-            connection = null;
-            isAcquiring = false;
+        }
+    }
+    private void closeQuietly(){
+        try{
+            close();
+        }catch (BITalinoException ignored) {
+
         }
     }
 }

@@ -121,4 +121,26 @@ class SignalProcessingTest {
             throw new AssertionError("Tardo demasiado en detectar el timeout: " + elapsed + " ms");
         }
     }
+
+    @Test
+    @DisplayName("open() rechaza una frecuencia no valida sin intentar conectar por Bluetooth")
+    void openRejectsInvalidSamplingRate() {
+        BITalino b = new BITalino();
+        BITalinoException e = assertThrows(BITalinoException.class, () -> b.open("98:D3:31:FD:3B:8C", 500));
+        assertEquals(BITalinoErrorTypes.INVALID_PARAMETER, e.getType());
+    }
+
+    @Test
+    @DisplayName("close() deja el objeto limpio aunque falle al cerrar un recurso")
+    void closeAlwaysResetsState() throws Exception {
+        BITalino b = deviceWith(new byte[0], new int[]{0, 1, 2, 3});
+        set(b, "iStream", new DataInputStream(new java.io.InputStream() {
+            @Override public int read() { return -1; }
+            @Override public void close() throws java.io.IOException { throw new java.io.IOException("fallo simulado"); }
+        }));
+        BITalinoException e = assertThrows(BITalinoException.class, b::close);
+        assertEquals(BITalinoErrorTypes.UNDEFINED_ERROR, e.getType());
+        BITalinoException again = assertThrows(BITalinoException.class, () -> b.read(1));   //ya no esta adquiriendo
+        assertEquals(BITalinoErrorTypes.DEVICE_NOT_IN_ACQUISITION_MODE, again.getType());
+    }
 }
