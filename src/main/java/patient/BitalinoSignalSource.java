@@ -8,8 +8,11 @@ import patient.bitalino.*;
 import java.util.ArrayList;
 import java.util.List;
 import common.Config;
-
+//Capa intermedia entre la placa BITalino y el resto de la app
+//Captura las exepciones de Bitalino y la convierte en true, false o null que es lo que espera la interfaz
+//Convierte los frames en SampleBlocks que es lo que se envía al servidor
 public class BitalinoSignalSource implements SignalSource{
+    private static final int REQUIRED_CHANNELS=4;
 
     private final BITalino bitalino;
     private boolean connected;
@@ -38,16 +41,20 @@ public class BitalinoSignalSource implements SignalSource{
     @Override
     public boolean startAcquisition(int[] channels) {
         if (!connected) {
-            System.err.println("No se puede iniciar la captura: BITalino no está conectado.");
+            System.err.println("[BITalino] Cannot start the acquisition: The device is not connected.");
+            return false;
+        }
+        if(channels==null||channels.length!=REQUIRED_CHANNELS){
+            System.out.println("[BITalino]bitalino.channels must contain excatly "+REQUIRED_CHANNELS + " channels (EMG, ACC X, ACC Y, ACC Z). Check config.properties.");
             return false;
         }
         try {
-            this.activeChannels = channels;
-            bitalino.start(channels);
+            this.activeChannels = channels.clone();//copia propia para que no afecte la modificacion del array externo
+            bitalino.start(channels);// se le pasa la copia para que la placa y esta clase usen exactamente los mismos canales
             this.recording = true;
             return true;
         } catch (BITalinoException e) {
-            System.err.println("Error al iniciar adquisición en BITalino: " + e.getMessage());
+            System.out.println("[BITalino] Could not start the acquisition: "+ e.getType());
             return false;
         }
     }
@@ -62,25 +69,25 @@ public class BitalinoSignalSource implements SignalSource{
                 return null;
             }
 
-            List<Integer> emgSamples = new ArrayList<>();
-            List<Integer> accX = new ArrayList<>();
-            List<Integer> accY = new ArrayList<>();
-            List<Integer> accZ = new ArrayList<>();
+            List<Integer> emgSamples = new ArrayList<>(frames.length);
+            List<Integer> accX = new ArrayList<>(frames.length);
+            List<Integer> accY = new ArrayList<>(frames.length);
+            List<Integer> accZ = new ArrayList<>(frames.length);
 
             for (Frame frame : frames) {
                 // Asignación de canales según configuración de Párkinson:
                 // Canal A1 (índice 0): EMG de rigidez muscular
                 // Canales A2, A3, A4 (índices 1, 2, 3): Acelerómetro X, Y, Z
-                if (activeChannels.length > 0) emgSamples.add(frame.analog[activeChannels[0]]);
-                if (activeChannels.length > 1) accX.add(frame.analog[activeChannels[1]]);
-                if (activeChannels.length > 2) accY.add(frame.analog[activeChannels[2]]);
-                if (activeChannels.length > 3) accZ.add(frame.analog[activeChannels[3]]);
+                emgSamples.add(frame.analog[activeChannels[0]]);
+                accX.add(frame.analog[activeChannels[1]]);
+                accY.add(frame.analog[activeChannels[2]]);
+                accZ.add(frame.analog[activeChannels[3]]);
             }
 
             return new SampleBlock(sessionId, emgSamples, accX, accY, accZ);
 
         } catch (BITalinoException e) {
-            System.err.println("Error al leer muestras de BITalino: " + e.getMessage());
+            System.out.println("[BITalino] Read error: " + e.getType());
             return null;
         }
     }
@@ -90,7 +97,7 @@ public class BitalinoSignalSource implements SignalSource{
             try {
                 bitalino.stop();
             } catch (BITalinoException e) {
-                System.err.println("Error al detener la adquisición: " + e.getMessage());
+                System.out.println("[BITalino] Could not send the stop comand" + e.getType());
             } finally {
                 this.recording = false;
             }
@@ -103,7 +110,7 @@ public class BitalinoSignalSource implements SignalSource{
             try {
                 bitalino.close();
             } catch (BITalinoException e) {
-                System.err.println("Error al cerrar conexión con BITalino: " + e.getMessage());
+                System.out.println("[BITalino] Error while closing the Bluetooth connection: " + e.getType());
             } finally {
                 this.connected = false;
             }
