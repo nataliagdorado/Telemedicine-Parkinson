@@ -17,8 +17,12 @@ public class BITalino {
     private int samplingRate = 1000;
     private int[] analogChannels = null;
     private boolean isAcquiring = false;
+    private long readTimeoutMillis=3000;//Tiempo maximo sin recibir datos durante read() (3 segundos)
 
     public BITalino() {
+    }
+    public void setReadTimeoutMillis(long millis){
+        this.readTimeoutMillis= Math.max(0,millis); //se queda con el numero mayor entre 0 y el que se ponga en el setter para que nunca se pueda establecer un numero negativo
     }
 
     public Vector<RemoteDevice> findDevices() throws BITalinoException {
@@ -104,16 +108,31 @@ public class BITalino {
 
         try{
             int totalRead=0; //cuantos bytes llevamos leidos
+            long lastDataTime=System.currentTimeMillis();//se toma el "ahora" como punto de partida
             while (totalRead<buffer.length){//hasta que se llene el buffer
+                if(readTimeoutMillis>0&&iStream.available()==0) {
+
+                    //cuantos datos hay esperando para leer sin bloquearse
+                    if (System.currentTimeMillis() - lastDataTime > readTimeoutMillis) {
+                        throw new BITalinoException(BITalinoErrorTypes.READ_TIMEOUT);
+                    }
+                    Thread.sleep(2);//si no se ha superado el tiempo, esperamos 2 ms y volvemos al principio del while y volvemos a preguntar
+                    //en esos 2 segundos los datos no se pierden por que se quedan guardados en el buffer dle bluetooth y se leen eb la siguiente vuekta
+                    continue;
+                }
                 int read= iStream.read(buffer, totalRead, buffer.length - totalRead);
                 //iStream es el flujo de entrada por donde llega la conexion de Bluetooth, por donde llegan los Bytes a la placa
                 if(read==-1){
                     throw  new BITalinoException(BITalinoErrorTypes.LOST_COMUNICATION);
                 }
                 totalRead+=read;
+                lastDataTime=System.currentTimeMillis();//como han llegaod datos se reinicia la cuenta
             }
         }catch (IOException e){ //el bluetooth puede lanzar una exception IO
             throw new BITalinoException(BITalinoErrorTypes.LOST_COMUNICATION);
+        }catch (InterruptedException e){
+            Thread.currentThread().interrupt();// lanzra excepcion si alguine interrumpe el hilo( por ejemplo, si alguien cierra la app)
+            throw new BITalinoException(BITalinoErrorTypes.UNDEFINED_ERROR);
         }
 
         Frame[] frames = new Frame[numberOfSamples];//crea el array donde iran las tramas decodificadas (al principio null)

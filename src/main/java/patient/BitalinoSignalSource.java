@@ -7,6 +7,7 @@ import common.SampleBlock;
 import patient.bitalino.*;
 import java.util.ArrayList;
 import java.util.List;
+import common.Config;
 
 public class BitalinoSignalSource implements SignalSource{
 
@@ -17,6 +18,7 @@ public class BitalinoSignalSource implements SignalSource{
 
     public BitalinoSignalSource() {
         this.bitalino = new BITalino();
+        this.bitalino.setReadTimeoutMillis(Config.getInt("bitalino.readTimeoutMs",3000));
         this.connected = false;
         this.recording = false;
     }

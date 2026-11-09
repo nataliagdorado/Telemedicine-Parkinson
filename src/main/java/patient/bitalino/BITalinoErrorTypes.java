@@ -12,8 +12,10 @@ public enum BITalinoErrorTypes {
     UNDEFINED_ERROR(6, "Undefined error."),
     LOST_COMUNICATION(7,"Lost communication with the device (powered off or out of range)."),
     //cuando se pierda el bluetooth o la placa este fuera del alcance
-    INVALID_DATA(8,"Corrupted data recieved from the device (CRC errors).");
+    INVALID_DATA(8,"Corrupted data recieved from the device (CRC errors)."),
     //cuando lleguen tramas corruptas detectadas por el CRC
+    READ_TIMEOUT(9,"No data recieved from the device within the configured time");
+    //paso el tiempo maximo establecido sin que se reciban datos
 
     private final int value;
     private final String description;
