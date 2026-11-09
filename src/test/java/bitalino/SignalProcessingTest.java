@@ -80,21 +80,67 @@ class SignalProcessingTest {
             assertEquals(300, frames[i].analog[3]);
         }
     }
+    @Test
+    @DisplayName("Trama con CRC incorrecto: se descarta y read() se resincroniza con la siguiente trama valida")
+    void resyncAfterCorruptedFrame() throws Exception {
+        byte[] good1 = encode4(1, 100, 200, 300, 400);
+        byte[] bad = encode4(2, 111, 222, 333, 444);
+        bad[3] ^= 0x01;   //se corrompe un bit: esta trama no pasa el CRC
+        byte[] good3 = encode4(3, 500, 600, 700, 800);
+        byte[] stream = new byte[21];
+        System.arraycopy(good1, 0, stream, 0, 7);
+        System.arraycopy(bad, 0, stream, 7, 7);
+        System.arraycopy(good3, 0, stream, 14, 7);
+        Frame[] frames = deviceWith(stream, new int[]{0, 1, 2, 3}).read(2);
+        assertEquals(1, frames[0].seq);
+        assertEquals(100, frames[0].analog[0]);
+        assertEquals(3, frames[1].seq);            //la corrupta se ha saltado: la segunda trama leida es good3
+        assertEquals(500, frames[1].analog[0]);
+        assertEquals(800, frames[1].analog[3]);
+    }
 
     @Test
-    @DisplayName("Una trama con CRC incorrecto hace que read() lance INVALID_DATA (como la API oficial)")
-    void detectsCrcError() throws Exception {
-        byte[] good = encode4(3, 100, 200, 300, 400);
-        byte[] bad = good.clone();
-        bad[3] ^= 0x01;   //se corrompe un bit
-        byte[] stream = new byte[21];
-        System.arraycopy(good, 0, stream, 0, 7);
-        System.arraycopy(bad, 0, stream, 7, 7);
-        System.arraycopy(good, 0, stream, 14, 7);
+    @DisplayName("Lectura desalineada (sobra 1 byte al principio): read() se resincroniza y decodifica bien el resto")
+    void resyncAfterMisalignment() throws Exception {
+        int n = 50;
+        byte[] stream = new byte[1 + 7 * n];
+        stream[0] = (byte) 0x5A;   //byte suelto que desplaza todas las tramas siguientes
+        for (int i = 0; i < n; i++) {
+            System.arraycopy(encode4(i % 16, 500 + i, 600, 700, 800), 0, stream, 1 + 7 * i, 7);
+        }
+        Frame[] frames = deviceWith(stream, new int[]{0, 1, 2, 3}).read(n - 1);
+        for (int i = 0; i < frames.length; i++) {
+            int expected = i + (frames[0].analog[0] - 500);   //la primera valida puede ser la 0 o la 1
+            assertEquals(500 + expected, frames[i].analog[0]);
+            assertEquals(600, frames[i].analog[1]);
+        }
+    }
+
+    @Test
+    @DisplayName("Datos que nunca forman una trama valida: read() se rinde con INVALID_DATA (no se queda en bucle)")
+    void giveUpOnGarbage() throws Exception {
+        byte garbage = findGarbageByte();
+        byte[] stream = new byte[7 * 20];
+        java.util.Arrays.fill(stream, garbage);
         BITalino b = deviceWith(stream, new int[]{0, 1, 2, 3});
-        BITalinoException e = assertThrows(BITalinoException.class, () -> b.read(3));
+        BITalinoException e = assertThrows(BITalinoException.class, () -> b.read(1));
         assertEquals(BITalinoErrorTypes.INVALID_DATA, e.getType());
     }
+
+    /** Busca un valor de byte tal que 7 bytes iguales NUNCA forman una trama con CRC correcto. */
+    static byte findGarbageByte() {
+        for (int v = 1; v < 256; v++) {
+            byte[] f = new byte[7];
+            java.util.Arrays.fill(f, (byte) v);
+            int sent = f[6] & 0x0F;
+            if (crc(f) != sent) {
+                return (byte) v;
+            }
+        }
+        throw new AssertionError("no se encontro ningun byte basura");
+    }
+
+
 
     @Test
     @DisplayName("Stream cerrado (read devuelve -1) lanza LOST_COMMUNICATION en vez de devolver ceros")

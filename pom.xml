@@ -19,20 +19,9 @@
             <id>mvn-repository</id>
             <url>https://repo1.maven.org/maven2/</url>
         </repository>
-        <repository>
-            <id>bluecove-repo</id>
-            <url>https://repository.mapr.com/nexus/content/groups/public/</url>
-        </repository>
     </repositories>
 
     <dependencies>
-        <!-- Bluetooth / BITalino -->
-        <dependency>
-            <groupId>net.sf.bluecove</groupId>
-            <artifactId>bluecove</artifactId>
-            <version>2.1.0</version>
-        </dependency>
-
         <!-- JSON protocol -->
         <dependency>
             <groupId>com.google.code.gson</groupId>
@@ -61,6 +50,15 @@
             <version>5.10.2</version>
             <scope>test</scope>
         </dependency>
+
+        <dependency>
+            <groupId>io.ultreia</groupId>
+            <artifactId>bluecove</artifactId>
+            <version>2.1.1</version>
+        </dependency>
+
     </dependencies>
+
+
 
 </project>
