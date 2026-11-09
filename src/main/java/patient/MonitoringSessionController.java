@@ -7,10 +7,16 @@ package patient;
 import common.SampleBlock;
 import common.SessionInfo;
 import common.Message;
-import patient.bitalino.*;
-import server.data.MonitoringSession;
+
 
 import java.time.LocalDateTime;
+//Esta clase funciona con un hilo aparte para que el hilo principal de PatientApp quede libre esperando a que el paciente
+//pulse ENTER para parar.
+
+//El ciclo de esta clase es:
+//1.Arranca el dispositivo
+//2.Repite el bucle: lee el bloque de 100 muestras, lo envía al servidor como SAMPLE_BLOCK y comprueba si hay que parar
+//3.Al terminar llama a finish() para que el dispositivo marque la sesion como completa o incompleta y envie al servidor STOPMONITORING
 
 public class MonitoringSessionController implements Runnable {
 
@@ -53,53 +59,64 @@ public class MonitoringSessionController implements Runnable {
     @Override
     public void run() {
         running = true;//se marca antes de arrancar el dispositivo para que si el paciente pulsa parar en ese instnate, la orden no se pierda
-        //Intenta iniciar la adquisicion en la fuente de señal (BITALINO O SIMULADOR)
-        if (!signalSource.startAcquisition(channels)) {
-            System.out.println("[Monitoring] Could not start the acquisition. Check the device.");
-            finish(EndReason.DEVICEERROR);//SE CIERRA DE FORMA ORDENADA Y SE AVISA AL SERVIDOR PARA QUE NO QUEE LA SESION ABIERTA
-            return;
-        }
-        info.setStartTime(LocalDateTime.now()); //hora de inicio de la grabacion, ahora
-        System.out.println("[Monitoring] Recording started (" + durationSeconds + " s). Press Enter to stop.");
 
-        long totalExpectedSamples = (long) durationSeconds * samplingRateHz;
-        long collectedSamples = 0;       //muestras ya enviadas al servidor; tambien sirve como numero de secuencia (firstSeq) del siguiente bloque
-        int consecutiveFailures = 0;     //lecturas fallidas seguidas; vuelve a 0 con cada lectura correcta
-        EndReason reason = EndReason.TIMEOUT;   //valor por defecto: si el bucle termina por su condicion, es que se cumplio la duracion
+        try{
 
-        //Bucle principal: leer un bloque, enviarlo y repetir hasta tener todas las muestras previstas
-        while (collectedSamples < totalExpectedSamples) {
-            //1) ¿Ha pedido el paciente parar? Se comprueba al inicio de cada vuelta (como mucho tarda un bloque, ~100 ms, en reaccionar)
-            if (cancelRequested || Thread.currentThread().isInterrupted()) {   //isInterrupted: por si PatientApp interrumpe el hilo al cerrarse
-                reason = EndReason.USER;
-                break;
+            //Intenta iniciar la adquisicion en la fuente de señal (BITALINO O SIMULADOR)
+            if (!signalSource.startAcquisition(channels)) {
+                System.out.println("[Monitoring] Could not start the acquisition. Check the device.");
+                finish(EndReason.DEVICEERROR);//SE CIERRA DE FORMA ORDENADA Y SE AVISA AL SERVIDOR PARA QUE NO QUEE LA SESION ABIERTA
+                return;
             }
+            info.setStartTime(LocalDateTime.now()); //hora de inicio de la grabacion, ahora
+            System.out.println("[Monitoring] Recording started (" + durationSeconds + " s). Press Enter to stop.");
 
-            //2) Leer un bloque: con el BITalino real esta llamada BLOQUEA hasta tener BLOCK_SIZE muestras (por eso no hace falta sleep)
-            SampleBlock block = signalSource.readBlock(BLOCK_SIZE, info.getSessionId());
+            long totalExpectedSamples = (long) durationSeconds * samplingRateHz;
+            long collectedSamples = 0;       //muestras ya enviadas al servidor; tambien sirve como numero de secuencia (firstSeq) del siguiente bloque
+            int consecutiveFailures = 0;     //lecturas fallidas seguidas; vuelve a 0 con cada lectura correcta
+            EndReason reason = EndReason.TIMEOUT;   //valor por defecto: si el bucle termina por su condicion, es que se cumplio la duracion
 
-            //3) Lectura fallida: readBlock devuelve null si hay error de Bluetooth; puede ser un fallo puntual o una desconexion
-            if (block == null || block.getEmgSamples() == null || block.getEmgSamples().isEmpty()) {
-                consecutiveFailures++;
-                System.out.println("[Monitoring] Read failed (" + consecutiveFailures + "/" + MAX_CONSECUTIVE_FAILURES + ")");
-                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {   //varios fallos seguidos = la placa se ha apagado o se ha perdido el Bluetooth
-                    System.out.println("[Monitoring] The BITalino seems to be disconnected. Stopping the session.");
-                    reason = EndReason.DEVICEERROR;
-                    break;   //sale del bucle; sin esto se quedaria reintentando para siempre (el bug de la version anterior)
+            //Bucle principal: leer un bloque, enviarlo y repetir hasta tener todas las muestras previstas
+            while (collectedSamples < totalExpectedSamples) {
+                //1) ¿Ha pedido el paciente parar? Se comprueba al inicio de cada vuelta (como mucho tarda un bloque, ~100 ms, en reaccionar)
+                if (cancelRequested || Thread.currentThread().isInterrupted()) {   //isInterrupted: por si PatientApp interrumpe el hilo al cerrarse
+                    reason = EndReason.USER;
+                    break;
                 }
-                continue;   //vuelve al principio del while e intenta leer otra vez
-            }
-            consecutiveFailures = 0;   //lectura correcta: se reinicia el contador, asi un fallo aislado no acumula
 
-            //4) Enviar el bloque al servidor; si falla, no tiene sentido seguir grabando datos que no se van a guardar
-            if (!sendBlock(block, collectedSamples)) {
-                reason = EndReason.CONNECTIONLOST;
-                break;
+                //2) Leer un bloque: con el BITalino real esta llamada BLOQUEA hasta tener BLOCK_SIZE muestras (por eso no hace falta sleep)
+                SampleBlock block = signalSource.readBlock(BLOCK_SIZE, info.getSessionId());
+
+                //3) Lectura fallida: readBlock devuelve null si hay error de Bluetooth; puede ser un fallo puntual o una desconexion
+                if (block == null || block.getEmgSamples() == null || block.getEmgSamples().isEmpty()) {
+                    consecutiveFailures++;
+                    System.out.println("[Monitoring] Read failed (" + consecutiveFailures + "/" + MAX_CONSECUTIVE_FAILURES + ")");
+                    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {   //varios fallos seguidos = la placa se ha apagado o se ha perdido el Bluetooth
+                        System.out.println("[Monitoring] The BITalino seems to be disconnected. Stopping the session.");
+                        reason = EndReason.DEVICEERROR;
+                        break;   //sale del bucle; sin esto se quedaria reintentando para siempre (el bug de la version anterior)
+                    }
+                    continue;   //vuelve al principio del while e intenta leer otra vez
+                }
+                consecutiveFailures = 0;   //lectura correcta: se reinicia el contador, asi un fallo aislado no acumula
+
+                //4) Enviar el bloque al servidor; si falla, no tiene sentido seguir grabando datos que no se van a guardar
+                if (!sendBlock(block, collectedSamples)) {
+                    reason = EndReason.CONNECTIONLOST;
+                    break;
+                }
+                collectedSamples += block.getEmgSamples().size();   //se suman las muestras realmente recibidas (puede ser menos de BLOCK_SIZE)
             }
-            collectedSamples += block.getEmgSamples().size();   //se suman las muestras realmente recibidas (puede ser menos de BLOCK_SIZE)
+
+            finish(reason);   //cierre controlado comun a todas las formas de terminar
+    }catch (RuntimeException e){
+            System.out.println("[Monitoring]Unexpected acquisition error: "+e);
+            if(endReason==null){
+                finish(EndReason.DEVICEERROR);
+            }
+        }finally {
+            running=false;
         }
-
-        finish(reason);   //cierre controlado comun a todas las formas de terminar
     }
 
     //Construye y envia un SAMPLE_BLOCK. Devuelve false si se pierde la conexion o el servidor rechaza el bloque
