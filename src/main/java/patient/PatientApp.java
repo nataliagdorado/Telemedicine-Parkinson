@@ -38,21 +38,35 @@ public class PatientApp {
 
     private void start(){
         System.out.println("=== PARKINSON TELEMONITORING SYSTEM - Patient Application ===");
+        System.out.println("Signal source: "+ SIGNAL_SOURCE+ "| "+ SAMPLING_RATE+ " Hz | session: "+ DURATION_SECONDS+ " s");
 
-        if(!connectWithRetry()){//el paciente decide no reintentar la conexión por lo que sale sin excepción
-            System.out.println("Goodbye!");
-            return;
-        }
         try {
-            if(login()){
-                mainMenu();
+
+            while (true) {
+                if (!connectWithRetry()) {//el paciente decide no reintentar la conexión por lo que sale sin excepción
+                    System.out.println("Goodbye!");
+                    return;
+                }
+                try {
+                    if (login()) {
+                        mainMenu();
+                    }
+                    return;
+
+                } catch (IOException e) {//el servidor se cae a la mitad (p.ej. lo apaga el admin)
+                    System.out.println("Connection with the server LOST: " + e.getMessage());
+                    System.out.println("Your previously sent data is safe on the server. Please, restart the app.");
+                    connection.close();
+                    String answer = readLine("Reconnect with the server? (y/n): ");
+                    if (answer == null || !answer.equalsIgnoreCase("y")) {
+                        return;
+                    }
+                    //Prinicipio del while, nueva connexion y log in--> el TOKEN anterio ya no vale
+                }
             }
-        }catch (IOException e){//el servidor se cae a la mitad (p.ej. lo apaga el admin)
-            System.out.println("Connection with the server LOST: "+e.getMessage());
-            System.out.println("Your previously sent data is safe on the server. Please, restart the app.");
         }finally {
             connection.close();
-            System.out.println("Patient application closed.");
+            System.out.println("Patient application closed");
         }
     }
 
@@ -179,7 +193,14 @@ public class PatientApp {
                 System.out.println("The server could not start the session: " + errorText(response));
                 return;
             }
-            String sessionId = (String) response.getData().get("sessionId");
+            String sessionId = null;
+            if(response.getData()!=null){// solo se lee la session ID si la respuesta realmente trae datos
+                sessionId=(String) response.getData().get("sessionId");
+            }
+            if(sessionId==null){ // si la tespuesta no tiene sesionId no se graba
+                System.out.println("The server did not assign a session identifier so the session was not started.");
+                return;
+            }
 
             //c) Lanzar la grabacion en un hilo secundario
             MonitoringSessionController controller = new MonitoringSessionController(source, connection,
