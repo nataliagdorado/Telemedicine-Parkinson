@@ -12,7 +12,6 @@
 <!-- CONTENEDOR HERO PRINCIPAL -->
 <div class="landing-stage" id="landingPortal">
 
-    <!-- BARRA SUPERIOR MINIMALISTA -->
     <header class="navbar">
         <div class="logo">
             <span class="cross">+</span>
@@ -20,13 +19,15 @@
         </div>
 
         <nav class="nav-links">
-            <span class="nav-item">Telemetría</span>
-            <span class="nav-item">BITalino</span>
-            <span class="nav-item">Protocolo TCP</span>
-            <span class="nav-item">Cohorte</span>
-            <span class="nav-item">Servidor: 9000</span>
+            <span class="nav-item" onclick="openModal('specs')">Product Specs</span>
+            <span class="nav-item" onclick="openModal('protocol')">Clinical Protocol</span>
+            <span class="nav-item" onclick="openModal('support')">Support Desk</span>
         </nav>
 
+        <div class="server-status">
+            <span class="status-indicator"></span>
+            <span class="status-text">TCP Port 9000</span>
+        </div>
     </header>
 
     <!-- TEXTO GIGANTE DE FONDO -->
@@ -56,22 +57,7 @@
         <p class="tagline-sub">telemonitoring</p>
     </div>
 
-    <!-- ZONA INFERIOR: COHORTE A LA IZQUIERDA Y LOGIN AZUL A LA DERECHA -->
     <footer class="bottom-stage">
-        <!-- Izquierda: Datos de pacientes y validación médica -->
-        <div class="trust-column">
-            <div class="avatars-group">
-                <div class="avatar av-1">P1</div>
-                <div class="avatar av-2">P2</div>
-                <div class="avatar av-3">P3</div>
-            </div>
-            <div class="trust-text">
-                <strong>Monitorización clínica activa</strong>
-                <p>Cohorte de pacientes P001 a P004 sincronizada con SQLite.</p>
-            </div>
-        </div>
-
-        <!-- Derecha: Tarjeta de Login compacta con botón azul -->
         <div class="access-column">
             <div class="access-pill-card" id="loginCard">
                 <div class="role-switch">
@@ -153,6 +139,27 @@
     </div>
 </section>
 
+
+<div class="modal-backdrop hidden" id="infoModal" onclick="closeModalOnBackdrop(event)">
+    <div class="modal-dialog">
+        <div class="modal-top">
+            <div class="modal-tag" id="modalCategory">SYSTEM SPECIFICATION</div>
+            <button class="modal-close-btn" onclick="closeModal()">✕</button>
+        </div>
+
+        <h2 class="modal-title" id="modalTitle">Title Placeholder</h2>
+
+        <div class="modal-body" id="modalContent">
+            <!-- El contenido dinámico en inglés se inyecta desde app.js -->
+        </div>
+
+        <div class="modal-footer">
+            <span class="modal-meta" id="modalMeta">TremorLink v1.0.4 · ISO 13485 Compliant</span>
+            <button class="blue-btn modal-ack" onclick="closeModal()">Close Details</button>
+        </div>
+    </div>
+</div>
 <script src="app.js"></script>
+
 </body>
 </html>
