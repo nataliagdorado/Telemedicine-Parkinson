@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>TremorLink - Telemedicine Platform</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+</head>
+<body>
+<!-- CONTENEDOR HERO PRINCIPAL -->
+<div class="landing-stage" id="landingPortal">
+
+    <!-- BARRA SUPERIOR MINIMALISTA -->
+    <header class="navbar">
+        <div class="logo">
+            <span class="cross">+</span>
+            <span class="logo-text">tremorlink</span>
+        </div>
+
+        <nav class="nav-links">
+            <span class="nav-item">Telemetría</span>
+            <span class="nav-item">BITalino</span>
+            <span class="nav-item">Protocolo TCP</span>
+            <span class="nav-item">Cohorte</span>
+            <span class="nav-item">Servidor: 9000</span>
+        </nav>
+
+    </header>
+
+    <!-- TEXTO GIGANTE DE FONDO -->
+    <div class="watermark-background">tremorlink</div>
+
+    <!-- OBJETO CENTRAL: LA NEURONA FLOTANTE -->
+    <div class="center-stage">
+        <div class="neuron-wrapper">
+            <!-- Tu foto de la neurona -->
+            <img src="neuronaglass.png" alt="Neural Activity" class="neuron-img" onerror="this.style.display='none'; document.getElementById('placeholderNeuron').style.display='block';">
+
+            <!-- Fallback decorativo por si la imagen aún no está en la carpeta -->
+            <div id="placeholderNeuron" class="neuron-fallback" style="display:none;">
+                <div class="neural-core"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- COPY EDITORIAL IZQUIERDA Y DERECHA -->
+    <div class="copy-left-sub">
+        <p class="tagline">Biometric signals</p>
+        <p class="tagline-sub">start here</p>
+    </div>
+
+    <div class="copy-right-sub">
+        <p class="tagline">Neurological</p>
+        <p class="tagline-sub">telemonitoring</p>
+    </div>
+
+    <!-- ZONA INFERIOR: COHORTE A LA IZQUIERDA Y LOGIN AZUL A LA DERECHA -->
+    <footer class="bottom-stage">
+        <!-- Izquierda: Datos de pacientes y validación médica -->
+        <div class="trust-column">
+            <div class="avatars-group">
+                <div class="avatar av-1">P1</div>
+                <div class="avatar av-2">P2</div>
+                <div class="avatar av-3">P3</div>
+            </div>
+            <div class="trust-text">
+                <strong>Monitorización clínica activa</strong>
+                <p>Cohorte de pacientes P001 a P004 sincronizada con SQLite.</p>
+            </div>
+        </div>
+
+        <!-- Derecha: Tarjeta de Login compacta con botón azul -->
+        <div class="access-column">
+            <div class="access-pill-card" id="loginCard">
+                <div class="role-switch">
+                    <button type="button" class="switch-opt active" id="btnPat" onclick="switchRole('PATIENT')">Paciente</button>
+                    <button type="button" class="switch-opt" id="btnDoc" onclick="switchRole('DOCTOR')">Médico</button>
+                </div>
+
+                <div class="input-line">
+                    <input type="text" id="usernameInput" placeholder="ID (ej. P001)" autocomplete="off">
+                    <input type="hidden" id="roleSelect" value="PATIENT">
+                    <button class="blue-btn" onclick="iniciarSesion()">
+                        <span>Acceder</span>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                    </button>
+                </div>
+
+                <div id="statusMessage" class="status-caption"></div>
+            </div>
+        </div>
+    </footer>
+</div>
+
+<!-- PANTALLA DASHBOARD PACIENTE (Se activa tras login con P001) -->
+<section class="dashboard-wrapper hidden" id="patientDashboard">
+    <header class="dash-topbar">
+        <div>
+            <span class="crumb">PACIENTE REGISTRADO</span>
+            <h2 id="patientGreeting">P001</h2>
+        </div>
+        <button class="logout-btn" onclick="location.reload()">Cerrar Sesión</button>
+    </header>
+
+    <div class="dash-grid">
+        <div class="card-white">
+            <h3>Reporte Diario de Síntomas</h3>
+            <div class="slider-field">
+                <label>Severidad del Temblor: <b id="tremorVal">2</b> / 5</label>
+                <input type="range" id="tremorInput" min="1" max="5" value="2" oninput="document.getElementById('tremorVal').innerText = this.value">
+            </div>
+            <div class="slider-field">
+                <label>Rigidez Muscular: <b id="rigidityVal">1</b> / 5</label>
+                <input type="range" id="rigidityInput" min="1" max="5" value="1" oninput="document.getElementById('rigidityVal').innerText = this.value">
+            </div>
+            <div class="toggle-row">
+                <input type="checkbox" id="medsCheck" checked>
+                <label for="medsCheck">Medicación tomada a la hora pautada</label>
+            </div>
+            <div class="toggle-row">
+                <input type="checkbox" id="freezingCheck">
+                <label for="freezingCheck">Episodios de congelación de la marcha</label>
+            </div>
+            <button class="blue-btn full" onclick="enviarReporte()">Guardar en Servidor</button>
+            <div id="reportStatus" class="status-caption"></div>
+        </div>
+
+        <div class="card-white">
+            <h3>Telemetría BITalino</h3>
+            <p class="card-sub">Adquisición continua de EMG y acelerometría.</p>
+            <div class="bitalino-badge">
+                <div class="led-active"></div>
+                <span>Sensor preparado para muestreo</span>
+            </div>
+            <button class="ghost-btn" disabled>Iniciar Captura</button>
+        </div>
+    </div>
+</section>
+
+<!-- PANTALLA DASHBOARD DOCTOR (Se activa tras login de Doctor) -->
+<section class="dashboard-wrapper hidden" id="doctorDashboard">
+    <header class="dash-topbar">
+        <div>
+            <span class="crumb">ESPECIALISTA</span>
+            <h2>Panel de Consulta y Evolución</h2>
+        </div>
+        <button class="logout-btn" onclick="location.reload()">Cerrar Sesión</button>
+    </header>
+    <div class="card-white">
+        <p>Conexión directa activa al repositorio hospitalario.</p>
+    </div>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>
