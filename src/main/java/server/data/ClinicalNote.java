@@ -29,6 +29,9 @@ public class ClinicalNote implements Serializable {
         this.observation = observation;
     }
 
+    public ClinicalNote(String noteId, String patientId, String s, LocalDateTime now, String formattedText) {
+    }
+
     public String getNoteId() {
         return noteId;
     }

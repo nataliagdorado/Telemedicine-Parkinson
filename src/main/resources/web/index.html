@@ -65,10 +65,11 @@
                     <button type="button" class="switch-opt" id="btnDoc" onclick="switchRole('DOCTOR')">Médico</button>
                 </div>
 
-                <div class="input-line">
+                <div class="input-stack">
                     <input type="text" id="usernameInput" placeholder="ID (ej. P001)" autocomplete="off">
+                    <input type="password" id="passwordInput" placeholder="Contraseña" autocomplete="off">
                     <input type="hidden" id="roleSelect" value="PATIENT">
-                    <button class="blue-btn" onclick="iniciarSesion()">
+                    <button class="blue-btn full" onclick="iniciarSesion()">
                         <span>Acceder</span>
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                     </button>
@@ -80,85 +81,386 @@
     </footer>
 </div>
 
-<!-- PANTALLA DASHBOARD PACIENTE (Se activa tras login con P001) -->
-<section class="dashboard-wrapper hidden" id="patientDashboard">
-    <header class="dash-topbar">
-        <div>
-            <span class="crumb">PACIENTE REGISTRADO</span>
-            <h2 id="patientGreeting">P001</h2>
-        </div>
-        <button class="logout-btn" onclick="location.reload()">Cerrar Sesión</button>
-    </header>
+<!-- PATIENT DASHBOARD-->
+<section class="app-shell hidden" id="patientDashboard">
 
-    <div class="dash-grid">
-        <div class="card-white">
-            <h3>Reporte Diario de Síntomas</h3>
-            <div class="slider-field">
-                <label>Severidad del Temblor: <b id="tremorVal">2</b> / 5</label>
-                <input type="range" id="tremorInput" min="1" max="5" value="2" oninput="document.getElementById('tremorVal').innerText = this.value">
+    <!-- SIDEBAR PIZARRA IZQUIERDA (Estilo Horizon Med) -->
+    <aside class="app-sidebar">
+        <div class="sidebar-top">
+            <div class="sidebar-brand">
+                <span class="cross">+</span>
+                <span>tremorlink</span>
             </div>
-            <div class="slider-field">
-                <label>Rigidez Muscular: <b id="rigidityVal">1</b> / 5</label>
-                <input type="range" id="rigidityInput" min="1" max="5" value="1" oninput="document.getElementById('rigidityVal').innerText = this.value">
-            </div>
-            <div class="toggle-row">
-                <input type="checkbox" id="medsCheck" checked>
-                <label for="medsCheck">Medicación tomada a la hora pautada</label>
-            </div>
-            <div class="toggle-row">
-                <input type="checkbox" id="freezingCheck">
-                <label for="freezingCheck">Episodios de congelación de la marcha</label>
-            </div>
-            <button class="blue-btn full" onclick="enviarReporte()">Guardar en Servidor</button>
-            <div id="reportStatus" class="status-caption"></div>
+
+            <nav class="sidebar-nav">
+                <button type="button" class="side-link active" id="navOverview" onclick="switchPatientTab('overview')">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                    <span>Overview & Log</span>
+                </button>
+                <button type="button" class="side-link" id="navTelemetry" onclick="switchPatientTab('telemetry')">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    <span>BITalino Telemetry</span>
+                </button>
+                <button type="button" class="side-link" onclick="openEditProfileModal()">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    <span>Edit Profile</span>
+                </button>
+            </nav>
         </div>
 
-        <div class="card-white">
-            <h3>Telemetría BITalino</h3>
-            <p class="card-sub">Adquisición continua de EMG y acelerometría.</p>
-            <div class="bitalino-badge">
-                <div class="led-active"></div>
-                <span>Sensor preparado para muestreo</span>
+        <div class="sidebar-bottom">
+            <div class="patient-chip">
+                <div class="chip-avatar" id="sideAvatar">P1</div>
+                <div class="chip-info">
+                    <strong id="sideName">Patient</strong>
+                    <span id="topPatientBadge">ID: P001</span>
+                </div>
             </div>
-            <button class="ghost-btn" disabled>Iniciar Captura</button>
+            <button class="side-signout" onclick="location.reload()">Sign Out</button>
         </div>
-    </div>
+    </aside>
+
+    <!-- LIENZO PRINCIPAL BLANCO PURO -->
+    <main class="app-workspace">
+        <!-- Cabecera editorial limpia sin micro-etiquetas en mayúsculas -->
+        <header class="workspace-header">
+            <div>
+                <h1 class="welcome-title">Welcome, <span id="profName">Patient</span></h1>
+                <p class="welcome-sub">
+                    Age <strong id="profAge">--</strong> · Diagnosed in <strong id="profDiagYear">--</strong> · Schedule: <strong id="profMeds">--</strong>
+                </p>
+            </div>
+            <button class="subtle-action-btn" onclick="openEditProfileModal()">Edit Profile</button>
+        </header>
+
+        <!-- VISTA 1: OVERVIEW & DAILY ASSESSMENT (Enfocada al paciente) -->
+        <div class="workspace-grid" id="tabOverviewContent">
+            <!-- Columna Principal: Registro de Síntomas -->
+            <div class="primary-flow">
+                <section class="clean-section">
+                    <div class="section-heading">
+                        <h2>Log Motor Symptoms</h2>
+                        <span class="hint-text">Select intensity from 1 (Mild) to 5 (Severe)</span>
+                    </div>
+
+                    <div class="symptom-block">
+                        <label class="field-title">Tremor Severity</label>
+                        <div class="dots-row" id="tremorDots">
+                            <button type="button" class="dot-btn" data-val="1" onclick="selectDot('tremor', 1)">1</button>
+                            <button type="button" class="dot-btn active" data-val="2" onclick="selectDot('tremor', 2)">2</button>
+                            <button type="button" class="dot-btn" data-val="3" onclick="selectDot('tremor', 3)">3</button>
+                            <button type="button" class="dot-btn" data-val="4" onclick="selectDot('tremor', 4)">4</button>
+                            <button type="button" class="dot-btn" data-val="5" onclick="selectDot('tremor', 5)">5</button>
+                        </div>
+                        <input type="hidden" id="tremorInput" value="2">
+                    </div>
+
+                    <div class="symptom-block">
+                        <label class="field-title">Muscular Rigidity</label>
+                        <div class="dots-row" id="rigidityDots">
+                            <button type="button" class="dot-btn active" data-val="1" onclick="selectDot('rigidity', 1)">1</button>
+                            <button type="button" class="dot-btn" data-val="2" onclick="selectDot('rigidity', 2)">2</button>
+                            <button type="button" class="dot-btn" data-val="3" onclick="selectDot('rigidity', 3)">3</button>
+                            <button type="button" class="dot-btn" data-val="4" onclick="selectDot('rigidity', 4)">4</button>
+                            <button type="button" class="dot-btn" data-val="5" onclick="selectDot('rigidity', 5)">5</button>
+                        </div>
+                        <input type="hidden" id="rigidityInput" value="1">
+                    </div>
+
+                    <!-- Checkboxes personalizados estilo pill (sin controles nativos cuadrados) -->
+                    <div class="custom-checks-row">
+                        <label class="pill-checkbox">
+                            <input type="checkbox" id="medsCheck" checked>
+                            <span class="check-visual">✓</span>
+                            <span>Medication taken on schedule</span>
+                        </label>
+                        <label class="pill-checkbox">
+                            <input type="checkbox" id="freezingCheck">
+                            <span class="check-visual">✓</span>
+                            <span>Freezing of Gait (FoG) episodes</span>
+                        </label>
+                    </div>
+
+                    <!-- Botón compacto proporcionado (no ocupa el 100%) -->
+                    <div class="form-footer-bar">
+                        <button class="compact-primary-btn" onclick="enviarReporte()">Submit Daily Report</button>
+                        <span id="reportStatus" class="inline-feedback"></span>
+                    </div>
+                </section>
+
+                <hr class="hairline-divider">
+
+                <!-- Historial limpio tipo tabla editorial -->
+                <section class="clean-section">
+                    <div class="section-heading">
+                        <h2>Recent Symptom History</h2>
+                        <span class="count-pill" id="reportsCountBadge">0 logs</span>
+                    </div>
+                    <div class="editorial-list" id="reportsHistoryList">
+                        <p class="empty-msg">No symptom logs recorded yet.</p>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Columna Derecha: Métricas resumidas y acceso rápido a telemetría -->
+            <aside class="secondary-rail">
+                <div class="summary-panel">
+                    <h3>Clinical Summary</h3>
+                    <div class="metric-line">
+                        <span>Average Tremor</span>
+                        <strong id="statAvgTremor">-</strong>
+                    </div>
+                    <div class="metric-line">
+                        <span>Average Rigidity</span>
+                        <strong id="statAvgRigidity">-</strong>
+                    </div>
+                    <div class="metric-line last">
+                        <span>Medication Adherence</span>
+                        <strong class="accent-val" id="statAdherence">--%</strong>
+                    </div>
+                </div>
+
+                <div class="device-quick-card">
+                    <h3>BITalino Sensor</h3>
+                    <p>Triaxial accelerometer (ACC) and surface EMG acquisition.</p>
+                    <button class="subtle-action-btn full-width" onclick="switchPatientTab('telemetry')">
+                        Open Telemetry Console →
+                    </button>
+                </div>
+            </aside>
+        </div>
+
+        <!-- VISTA 2: BITalino Telemetry & Live Recording -->
+        <div class="telemetry-workspace hidden" id="tabTelemetryContent">
+            <section class="clean-section max-w-680">
+                <div class="section-heading">
+                    <h2>Signal Acquisition (BITalino)</h2>
+                    <span class="hint-text">Real-time triaxial accelerometer (ACC) and surface EMG streaming</span>
+                </div>
+
+                <!-- Configuración de Frecuencia y Duración -->
+                <div class="telemetry-controls-grid">
+                    <div class="symptom-block">
+                        <label class="field-title">Sampling Rate</label>
+                        <div class="segmented-control" id="rateSegmented">
+                            <button type="button" class="seg-btn" data-rate="10" onclick="selectSamplingRate(10)">10 Hz</button>
+                            <button type="button" class="seg-btn active" data-rate="100" onclick="selectSamplingRate(100)">100 Hz</button>
+                            <button type="button" class="seg-btn" data-rate="1000" onclick="selectSamplingRate(1000)">1000 Hz</button>
+                        </div>
+                        <input type="hidden" id="samplingRateSelect" value="100">
+                    </div>
+
+                    <div class="symptom-block">
+                        <label class="field-title">Session Duration</label>
+                        <div class="segmented-control" id="durationSegmented">
+                            <button type="button" class="seg-btn active" data-dur="15" onclick="selectDuration(15)">15 sec</button>
+                            <button type="button" class="seg-btn" data-dur="30" onclick="selectDuration(30)">30 sec</button>
+                            <button type="button" class="seg-btn" data-dur="60" onclick="selectDuration(60)">60 sec</button>
+                        </div>
+                        <input type="hidden" id="durationSelect" value="15">
+                    </div>
+                </div>
+                <div class="symptom-block">
+                    <label class="field-title">Recording Condition / Notes <span class="hint-text">(Optional context saved with session)</span></label>
+                    <input type="text" id="recordingNotesInput" class="modal-input" style="max-width: 540px;"
+                           placeholder="e.g., Resting posture, 45 min after Levodopa intake...">
+                </div>
+                <!-- Monitor Visual de Grabación (Osciloscopio + Estado de Sesión) -->
+                <div class="live-monitor-box">
+                    <div class="monitor-top-bar">
+                        <div class="hardware-status-inline">
+                            <span class="status-dot-live" id="sensorLed"></span>
+                            <span id="sensorStatusText">BITalino Board · Ready for stream</span>
+                        </div>
+                        <div class="recording-timer" id="recordingTimer">00:00</div>
+                    </div>
+
+                    <!-- Canvas de señal biomédica en tiempo real -->
+                    <canvas id="liveSignalCanvas" width="640" height="160"></canvas>
+
+                    <div class="monitor-bottom-bar">
+                        <span>Channels: <strong>A1 (EMG) · A2-A4 (ACC XYZ)</strong></span>
+                        <span id="sessionStorageBadge">Storage: <strong>Idle</strong></span>
+                    </div>
+                </div>
+
+                <div class="form-footer-bar">
+                    <button class="compact-primary-btn" id="btnStartCapture" onclick="toggleSignalCapture()">
+                        Start Signal Capture
+                    </button>
+                    <button class="subtle-action-btn" onclick="switchPatientTab('overview')">Back to Overview</button>
+                </div>
+            </section>
+        </div>
+    </main>
 </section>
 
-<!-- PANTALLA DASHBOARD DOCTOR (Se activa tras login de Doctor) -->
-<section class="dashboard-wrapper hidden" id="doctorDashboard">
-    <header class="dash-topbar">
-        <div>
-            <span class="crumb">ESPECIALISTA</span>
-            <h2>Panel de Consulta y Evolución</h2>
+<!-- DOCTOR PORTAL (EDITORIAL SIDEBAR + PATIENT COHORT & RECORD REVIEW) -->
+<section class="app-shell hidden" id="doctorDashboard">
+
+    <!-- SIDEBAR IZQUIERDA CON CENSO DE PACIENTES -->
+    <aside class="app-sidebar">
+        <div class="sidebar-top">
+            <div class="sidebar-brand">
+                <span class="cross">+</span>
+                <span>tremorlink</span>
+            </div>
+
+            <div class="sidebar-section-label">Assigned Cohort</div>
+            <div class="cohort-search-box">
+                <input type="text" id="cohortSearchInput" placeholder="Filter by name or ID..." oninput="filterDoctorCohort()">
+            </div>
+
+            <!-- Lista dinámica de pacientes (P001, P002...) -->
+            <nav class="cohort-list" id="doctorPatientList">
+                <div class="cohort-loading">Loading cohort...</div>
+            </nav>
         </div>
-        <button class="logout-btn" onclick="location.reload()">Cerrar Sesión</button>
-    </header>
-    <div class="card-white">
-        <p>Conexión directa activa al repositorio hospitalario.</p>
-    </div>
+
+        <div class="sidebar-bottom">
+            <div class="patient-chip">
+                <div class="chip-avatar">DR</div>
+                <div class="chip-info">
+                    <strong>Neurology Specialist</strong>
+                    <span>Active Clinical Session</span>
+                </div>
+            </div>
+            <button class="side-signout" onclick="location.reload()">Sign Out</button>
+        </div>
+    </aside>
+
+    <!-- LIENZO PRINCIPAL DEL ESPECIALISTA -->
+    <main class="app-workspace">
+        <!-- Estado vacío antes de elegir paciente -->
+        <div class="doctor-empty-state" id="doctorEmptyState">
+            <h2>Select a patient from the cohort</h2>
+            <p>Review clinical profiles, daily motor symptom logs, BITalino sessions, and attach record-specific medical observations.</p>
+        </div>
+
+        <!-- Expediente activo del paciente seleccionado -->
+        <div class="hidden" id="doctorPatientWorkspace">
+            <!-- Cabecera de Perfil del Paciente -->
+            <header class="workspace-header">
+                <div>
+                    <h1 class="welcome-title" id="docPatName">Patient Name</h1>
+                    <p class="welcome-sub">
+                        ID <strong id="docPatId">--</strong> · Age <strong id="docPatAge">--</strong> · Diagnosed <strong id="docPatDiag">--</strong> · Regimen: <strong id="docPatMeds">--</strong>
+                    </p>
+                </div>
+                <button class="compact-primary-btn" onclick="openObservationModal('General Clinical Review')">
+                    + Add General Note
+                </button>
+            </header>
+
+            <!-- Distribución Editorial Asimétrica -->
+            <div class="workspace-grid">
+                <!-- Columna Principal: Records (Síntomas + Sesiones) -->
+                <div class="primary-flow">
+                    <!-- Pestañas limpias entre Symptom Records y BITalino Sessions -->
+                    <div class="editorial-tabs">
+                        <button type="button" class="ed-tab active" id="tabDocSymptoms" onclick="switchDoctorRecordTab('symptoms')">
+                            Symptom Logs (<span id="docSympCount">0</span>)
+                        </button>
+                        <button type="button" class="ed-tab" id="tabDocSessions" onclick="switchDoctorRecordTab('sessions')">
+                            BITalino Telemetry Records (<span id="docSessCount">0</span>)
+                        </button>
+                    </div>
+
+                    <!-- Lista de Symptom Records con botón "+ Add Observation" en cada fila -->
+                    <div id="docSymptomsContainer" class="records-table-wrap">
+                        <p class="empty-msg">No symptom logs submitted by this patient.</p>
+                    </div>
+
+                    <!-- Lista de Telemetry Sessions con botón "+ Add Observation" en cada fila -->
+                    <div id="docSessionsContainer" class="records-table-wrap hidden">
+                        <p class="empty-msg">No BITalino telemetry sessions recorded yet.</p>
+                    </div>
+                </div>
+
+                <!-- Columna Derecha: Resumen clínico + Historial de Observaciones Médicas -->
+                <aside class="secondary-rail">
+                    <div class="summary-panel">
+                        <h3>Cohort Metrics</h3>
+                        <div class="metric-line">
+                            <span>Mean Tremor Score</span>
+                            <strong id="docAvgTremor">-</strong>
+                        </div>
+                        <div class="metric-line">
+                            <span>Mean Rigidity Score</span>
+                            <strong id="docAvgRigidity">-</strong>
+                        </div>
+                        <div class="metric-line last">
+                            <span>Treatment Adherence</span>
+                            <strong class="accent-val" id="docAdherence">--%</strong>
+                        </div>
+                    </div>
+
+                    <div class="notes-rail-section">
+                        <div class="notes-rail-header">
+                            <h3>Clinical Observations</h3>
+                            <span class="count-pill" id="docNotesCount">0</span>
+                        </div>
+                        <div class="notes-feed" id="docNotesFeed">
+                            <p class="empty-msg">No observations recorded for this patient.</p>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </div>
+    </main>
 </section>
 
-
-<div class="modal-backdrop hidden" id="infoModal" onclick="closeModalOnBackdrop(event)">
-    <div class="modal-dialog">
+<!-- MODAL POP-UP: ADD OBSERVATION TO RECORD -->
+<div class="modal-backdrop hidden" id="observationModal" onclick="if(event.target.id==='observationModal') closeObservationModal()">
+    <div class="modal-dialog" style="width: 480px;">
         <div class="modal-top">
-            <div class="modal-tag" id="modalCategory">SYSTEM SPECIFICATION</div>
-            <button class="modal-close-btn" onclick="closeModal()">✕</button>
+            <div class="modal-tag" id="obsRecordBadge">RECORD OBSERVATION</div>
+            <button class="modal-close-btn" onclick="closeObservationModal()">✕</button>
+        </div>
+        <h2 class="modal-title">Add Clinical Observation</h2>
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 16px;">
+            Attaching medical note to <strong id="obsTargetLabel" style="color: #181c24;">Record</strong>
+        </p>
+
+        <input type="hidden" id="obsRecordRefInput">
+
+        <div style="margin-bottom: 20px;">
+            <textarea id="obsTextArea" rows="4" class="modal-textarea" placeholder="Enter neurological findings, motor fluctuation notes, or dosage adjustments..."></textarea>
         </div>
 
-        <h2 class="modal-title" id="modalTitle">Title Placeholder</h2>
-
-        <div class="modal-body" id="modalContent">
-            <!-- El contenido dinámico en inglés se inyecta desde app.js -->
-        </div>
-
-        <div class="modal-footer">
-            <span class="modal-meta" id="modalMeta">TremorLink v1.0.4 · ISO 13485 Compliant</span>
-            <button class="blue-btn modal-ack" onclick="closeModal()">Close Details</button>
+        <div class="modal-footer" style="margin-top: 10px;">
+            <button class="subtle-action-btn" onclick="closeObservationModal()">Cancel</button>
+            <button class="compact-primary-btn" onclick="submitDoctorObservation()">Save Observation</button>
         </div>
     </div>
 </div>
+
+<!-- MODAL POP-UP: EDIT PATIENT PROFILE -->
+<div class="modal-backdrop hidden" id="editProfileModal" onclick="if(event.target.id==='editProfileModal') closeEditProfileModal()">
+    <div class="modal-dialog" style="width: 460px;">
+        <div class="modal-top">
+            <div class="modal-tag">CLINICAL RECORD</div>
+            <button class="modal-close-btn" onclick="closeEditProfileModal()">✕</button>
+        </div>
+        <h2 class="modal-title">Edit Patient Profile</h2>
+
+        <div class="input-group" style="margin-bottom: 14px;">
+            <label style="display:block; font-size:12px; font-weight:700; color:#475569; margin-bottom:6px;">Full Name</label>
+            <input type="text" id="editNameInput" class="modal-input">
+        </div>
+
+        <div class="input-group" style="margin-bottom: 20px;">
+            <label style="display:block; font-size:12px; font-weight:700; color:#475569; margin-bottom:6px;">Medication Schedule</label>
+            <input type="text" id="editMedsInput" class="modal-input">
+        </div>
+
+        <div class="modal-footer" style="margin-top: 10px;">
+            <button class="subtle-action-btn" onclick="closeEditProfileModal()">Cancel</button>
+            <button class="compact-primary-btn" onclick="saveProfileChanges()">Save Changes</button>
+        </div>
+    </div>
+</div>
+
 <script src="app.js"></script>
 
 </body>

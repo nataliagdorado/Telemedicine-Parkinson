@@ -20,9 +20,11 @@ public class Patient implements Serializable {
     private LocalDate birthDate;
     private Integer diagnosisYear;
     private String medicationSchedule;
+    private String passwordHash;
+    private String passwordSalt;
 
     public Patient(){}
-
+// @Sarah no te borro esto todavia para no romperte los test pero habria q borrar
     public Patient(String patientId, String name, LocalDate birthDate, Integer diagnosisYear, String medicationSchedule) {
         this.patientId = patientId;
         this.name = name;
@@ -30,12 +32,24 @@ public class Patient implements Serializable {
         this.diagnosisYear = diagnosisYear;
         this.medicationSchedule = medicationSchedule;
     }
+    // Constructor completo con password
+    public Patient(String patientId, String name, LocalDate birthDate, Integer diagnosisYear,
+                   String medicationSchedule, String passwordHash, String passwordSalt) {
+        this.patientId = patientId;
+        this.name = name;
+        this.birthDate = birthDate;
+        this.diagnosisYear = diagnosisYear;
+        this.medicationSchedule = medicationSchedule;
+        this.passwordHash = passwordHash;
+        this.passwordSalt = passwordSalt;
+    }
 
 
     public String getPatientId() {
         return patientId;
     }
-
+    public String getPasswordHash() { return passwordHash; }
+    public String getPasswordSalt() { return passwordSalt; }
     public String getName() {
         return name;
     }
@@ -78,6 +92,9 @@ public class Patient implements Serializable {
     public void setMedicationSchedule(String medicationSchedule) {
         this.medicationSchedule = medicationSchedule;
     }
+
+    public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
+    public void setPasswordSalt(String passwordSalt) { this.passwordSalt = passwordSalt; }
 
     @Override
     public String toString() {

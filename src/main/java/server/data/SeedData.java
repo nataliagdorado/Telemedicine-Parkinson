@@ -1,5 +1,7 @@
 package server.data;
 
+import server.AdminAuth;
+
 import java.time.LocalDate;
 import java.util.List;
 
@@ -12,13 +14,18 @@ public final class SeedData {
 
     private SeedData() {}   // solo métodos estáticos: no se instancia
 
+    private static Patient createWithPassword(String id, String name, LocalDate birth, int diagYear, String meds, String rawPassword) {
+        String salt = AdminAuth.generateSalt();
+        String hash = AdminAuth.hashPassword(rawPassword, salt);
+        return new Patient(id, name, birth, diagYear, meds, hash, salt);
+    }
     /** Lista nueva en cada llamada: Patient es mutable y no conviene compartir instancias. */
     static List<Patient> demoPatients() {
         return List.of(
-                new Patient("P001", "José Núñez",  LocalDate.of(1955, 3, 12),  2018, "Levodopa 8:00, 14:00, 20:00"),
-                new Patient("P002", "Ana Ruiz",    LocalDate.of(1961, 7, 2),   2021, "Levodopa 9:00, 21:00"),
-                new Patient("P003", "Carmen Peña", LocalDate.of(1948, 11, 25), 2012, "Levodopa 8:00, 12:00, 16:00, 20:00; Rasagilina 8:00"),
-                new Patient("P004", "Luis García", LocalDate.of(1970, 1, 30),  2024, "Pramipexol 9:00, 21:00")
+                createWithPassword("P001", "José Núñez",  LocalDate.of(1955, 3, 12),  2018, "Levodopa 8:00, 14:00, 20:00", "1234"),
+                createWithPassword("P002", "Ana Ruiz",    LocalDate.of(1961, 7, 2),   2021, "Levodopa 9:00, 21:00", "1234"),
+                createWithPassword("P003", "Carmen Peña", LocalDate.of(1948, 11, 25), 2012, "Levodopa 8:00, 12:00, 16:00, 20:00; Rasagilina 8:00", "1234"),
+                createWithPassword("P004", "Luis García", LocalDate.of(1970, 1, 30),  2024, "Pramipexol 9:00, 21:00", "1234")
         );
     }
     /**

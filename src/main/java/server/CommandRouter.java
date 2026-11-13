@@ -127,31 +127,48 @@ public class CommandRouter {
         Map<String, Object> data = request.getData();
         Role role = Role.PATIENT;
         String roleText = readString(data, "role");
-        if (roleText != null){
+        if (roleText != null) {
             try {
                 role = Role.valueOf(roleText.trim().toUpperCase());
-            }catch (IllegalArgumentException e) {
+            } catch (IllegalArgumentException e) {
                 return buildErrorResponse(request.getRequestId(), ErrorCode.INVALID_FIELD,
                         "Unknown role: " + roleText + " (allowed: PATIENT, DOCTOR, ADMIN)");
             }
         }
-        String id = request.getPatientId() != null ? request.getPatientId() : (data != null && data.get("id") != null ? String.valueOf(data.get("id")) : "UNKNOWN");
+
+        String id = request.getPatientId() != null
+                ? request.getPatientId()
+                : (data != null && data.get("id") != null ? String.valueOf(data.get("id")) : "UNKNOWN");
+        String password = readString(data, "password");
 
         if ("UNKNOWN".equals(id) || id.trim().isEmpty()) {
             return buildErrorResponse(request.getRequestId(), ErrorCode.UNAUTHENTICATED, "Authentication failed: Missing ID");
         }
-        if (role == Role.PATIENT){
+        if (password == null || password.isBlank()) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.UNAUTHENTICATED, "Authentication failed: Password required");
+        }
+
+        if (role == Role.PATIENT) {
             try {
-                if (repository.findPatient(id).isEmpty()){
-                    return buildErrorResponse(request.getRequestId(),ErrorCode.UNKNOWN_PATIENT, "Unknown patient: "+ id);
+                Optional<Patient> found = repository.findPatient(id);
+                if (found.isEmpty()) {
+                    return buildErrorResponse(request.getRequestId(), ErrorCode.UNKNOWN_PATIENT, "Unknown patient: " + id);
                 }
-            }catch (RepositoryException e) {
+                Patient patient = found.get();
+                if (!AdminAuth.verifyPassword(password, patient.getPasswordHash(), patient.getPasswordSalt())) {
+                    return buildErrorResponse(request.getRequestId(), ErrorCode.UNAUTHENTICATED, "Invalid credentials");
+                }
+            } catch (RepositoryException e) {
                 return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR,
                         "Could not read patient: " + e.getMessage());
             }
+        } else if (role == Role.DOCTOR || role == Role.ADMIN) {
+            // Credencial maestra del especialista (doctor / admin2026)
+            if (!"doctor".equalsIgnoreCase(id) || !"admin2026".equals(password)) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.UNAUTHENTICATED, "Invalid specialist credentials");
+            }
         }
 
-        // Creamos la sesion de verdad en el SessionManager
         String sessionToken = sessionManager.createSession(id, role.name());
 
         Message response = new Message("LOGIN_RESPONSE", request.getRequestId());
