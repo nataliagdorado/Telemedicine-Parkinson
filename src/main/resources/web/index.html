@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>TremorLink - Telemedicine Platform</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/workspace.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -461,7 +462,61 @@
     </div>
 </div>
 
-<script src="app.js"></script>
 
+<!-- MODAL POP-UP: INSPECT BITALINO WAVEFORM (DOCTOR) -->
+<div class="modal-backdrop hidden" id="waveformModal" onclick="if(event.target.id==='waveformModal') closeWaveformModal()">
+    <div class="modal-dialog" style="width: 720px; max-width: 92vw;">
+        <div class="modal-top">
+            <div class="modal-tag" id="wfSessionBadge">TELEMETRY INSPECTOR</div>
+            <button class="modal-close-btn" onclick="closeWaveformModal()">✕</button>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+            <div>
+                <h2 class="modal-title" style="margin-bottom:2px;" id="wfModalTitle">Session Waveform</h2>
+                <span style="font-size:12px; color:#64748b;" id="wfSampleCount">0 samples loaded</span>
+            </div>
+
+            <!-- Selector de canal (EMG vs Accelerometer) -->
+            <div class="segmented-control" id="wfChannelSwitch">
+                <button type="button" class="seg-btn active" id="btnWfEmg" onclick="switchWaveformChannel('EMG')">A1 · Surface EMG</button>
+                <button type="button" class="seg-btn" id="btnWfAcc" onclick="switchWaveformChannel('ACC')">A2 · Tremor ACC-X</button>
+            </div>
+        </div>
+
+        <div class="live-monitor-box" style="margin-bottom:16px;">
+            <canvas id="doctorWaveformCanvas" width="660" height="220" style="width:100%; height:220px; display:block; background:#11141a; border-radius:8px;"></canvas>
+            <div class="monitor-bottom-bar">
+                <span id="wfChannelDesc">Channel A1: Surface Electromyography (10-bit ADC)</span>
+                <span id="wfPeakStat">Amplitude Range: --</span>
+            </div>
+        </div>
+
+        <div class="modal-footer" style="margin-top:0;">
+            <button class="subtle-action-btn" onclick="closeWaveformModal()">Close Inspector</button>
+            <button class="compact-primary-btn" id="wfAddObsBtn" onclick="">+ Add Observation to Session</button>
+        </div>
+    </div>
+</div>
+
+// Modal. Probando con el índice
+<div class="modal-backdrop hidden" id="infoModal" onclick="if(event.target === this) closeModal()">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div>
+                <div class="modal-category" id="modalCategory">CATEGORY</div>
+                <h3 class="modal-title" id="modalTitle">Modal Title</h3>
+                <div class="modal-meta" id="modalMeta">Subtitle</div>
+            </div>
+            <button class="modal-close-btn" onclick="closeModal()">✕</button>
+        </div>
+        <div class="modal-body" id="modalBody"></div>
+    </div>
+</div>
+
+
+<script src="js/auth.js"></script>
+<script src="js/patient.js"></script>
+<script src="js/doctor.js"></script>
+</body>
 </body>
 </html>

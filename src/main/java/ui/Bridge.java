@@ -347,4 +347,51 @@ public class Bridge {
             activeController.cancelRecording();
         }
     }
+
+    public void loadSignalWaveformForDoctor(String sessionId) {
+        new Thread(() -> {
+            try {
+                java.nio.file.Path csvPath = Paths.get("data", "signals", sessionId + ".csv");
+                if (java.nio.file.Files.notExists(csvPath)) {
+                    Platform.runLater(() -> webEngine.executeScript(
+                            String.format("onSignalWaveformError('CSV file not found for session %s');", sessionId)
+                    ));
+                    return;
+                }
+
+                List<String> lines = java.nio.file.Files.readAllLines(csvPath, java.nio.charset.StandardCharsets.UTF_8);
+                List<Integer> emgList = new java.util.ArrayList<>();
+                List<Integer> accXList = new java.util.ArrayList<>();
+
+                // Saltamos la cabecera (línea 0: seq,emg,accX,accY,accZ) y leemos hasta 600 muestras para renderizar fluido
+                int step = Math.max(1, (lines.size() - 1) / 600);
+                for (int i = 1; i < lines.size(); i += step) {
+                    String line = lines.get(i).trim();
+                    if (line.isEmpty()) continue;
+                    String[] parts = line.split(",");
+                    if (parts.length >= 3) {
+                        try {
+                            emgList.add(Integer.parseInt(parts[1].trim()));
+                            accXList.add(Integer.parseInt(parts[2].trim()));
+                        } catch (NumberFormatException ignored) {}
+                    }
+                }
+
+                String emgJson = MessageCodec.toJson(emgList);
+                String accJson = MessageCodec.toJson(accXList);
+                int totalSamples = Math.max(0, lines.size() - 1);
+
+                Platform.runLater(() -> {
+                    webEngine.executeScript(String.format(
+                            "renderDoctorWaveformModal('%s', %s, %s, %d);",
+                            sessionId, emgJson, accJson, totalSamples
+                    ));
+                });
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                Platform.runLater(() -> webEngine.executeScript("onSignalWaveformError('Failed to parse signal CSV');"));
+            }
+        }).start();
+    }
 }

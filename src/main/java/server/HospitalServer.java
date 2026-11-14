@@ -7,6 +7,7 @@ import server.data.Repository;
 import server.data.RepositoryException;
 import server.data.SeedData;
 import server.data.SignalStore;
+import server.data.ServerAdminFrame;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -19,6 +20,7 @@ import common.SessionInfo;
 import common.SessionStatus;
 import server.data.Patient;
 
+import javax.swing.*;
 import java.nio.file.Files;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -92,7 +94,17 @@ public class HospitalServer {
             consoleThread.start();
 
             LOGGER.info("Server listening for incoming connections on port " + PORT);
-
+            String adminPassword = Config.get("admin.password", "admin123");
+            SwingUtilities.invokeLater(() -> {
+                ServerAdminFrame adminFrame = new ServerAdminFrame(
+                        PORT,
+                        clientRegistry,
+                        repository,
+                        shutdownCoordinator,
+                        adminPassword
+                );
+                adminFrame.setVisible(true);
+            });
             // BUCLE: Continua aceptando clientes mientras el coordinador no reciba orden de parada.
             while (shutdownCoordinator.isRunning()) {
 

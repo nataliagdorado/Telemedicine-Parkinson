@@ -99,4 +99,11 @@ public class ClientHandler implements Runnable {
             LOGGER.log(Level.WARNING, "Error closing client socket: " + e.getMessage());
         }
     }
+
+
+    public String getRemoteAddress() {
+        return (socket != null && socket.getRemoteSocketAddress() != null)
+                ? socket.getRemoteSocketAddress().toString()
+                : "Unknown";
+    }
 }
