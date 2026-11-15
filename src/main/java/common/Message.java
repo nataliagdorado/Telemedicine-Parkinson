@@ -8,6 +8,7 @@ import java.util.Map;
 /**
  * POJO compartido para transmisión por red TCP/IP entre Cliente y Servidor.
  * Actúa como envoltorio genérico compatible con JSON y Serializable.
+ * PAQUETE ESTÁNDAR DEL PROTOCOLO DE RED. UNIFICA PROTOCOLO Y FORMATO
  */
 public class Message implements Serializable {
     private static final long serialVersionUID = 1L;

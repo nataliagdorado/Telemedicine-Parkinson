@@ -6,6 +6,7 @@ import java.util.Properties;
 
 // Con esta clase, si cambio de ordenador o de puerto, solo hay que editar el archivo de texto externo sin recompilar nada
 // (esto está porque lo pide Alberto en su documento)
+// Carga parámetros externos desde config/config.properties (server.port, server.host, data.dir, admin.password)
 public class Config {
     private static final Properties properties = new Properties();
 

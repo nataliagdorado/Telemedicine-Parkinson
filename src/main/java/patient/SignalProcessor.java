@@ -1,5 +1,6 @@
 //Clase para la conversion a unidades dísicas de los datos del BITalino
 // Las unidades fisicas se utiulizaran en el resumen de la sesion y estarán documentadas
+// @TODO Sarah explica a Naatalia bien que hace esto que no está en la GUI
 
 package patient;
 

@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
+// @TODO Natalia dice que esta clase se puede borrar pq mi GUI ya lo hace todo sabesss
 
 /**
  * Entry point for the Patient application.

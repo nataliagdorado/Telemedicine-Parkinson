@@ -1,4 +1,5 @@
 //pedir por consola los sintomas al paciente y comprobar la validez de los datos recibidos
+// @TODO Same, esto podria quitarse pq es consola
 
 package patient;
 

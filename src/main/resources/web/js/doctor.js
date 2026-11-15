@@ -287,8 +287,8 @@ function onSignalWaveformError(msg) {
     document.getElementById("wfModalTitle").textContent = "Signal Unavailable";
     document.getElementById("wfSampleCount").textContent = msg;
 }
-// Cuando Java termina de leer el CSV, llama a esta función pasándole los arrays reales de datos y el total de muestras
-function renderDoctorWaveformModal(sessionId, emgArray, accArray, totalSamples) {
+// Cuando Java termina de leer el CSV, llama a esta función pasándole los arrays reales, el total de muestras y el análisis de TremorAnalyzer
+function renderDoctorWaveformModal(sessionId, emgArray, accArray, totalSamples, metrics) {
     wfCurrentSessionId = sessionId;
     wfEmgData = emgArray || [];
     wfAccData = accArray || [];
@@ -297,12 +297,58 @@ function renderDoctorWaveformModal(sessionId, emgArray, accArray, totalSamples) 
     document.getElementById("wfModalTitle").textContent = "Biosignal Recording · #" + sessionId;
     document.getElementById("wfSampleCount").textContent = `${totalSamples.toLocaleString()} samples archived in CSV`;
 
+    // Inyectar los resultados biomédicos de TremorAnalyzer y SignalProcessor justo encima del canvas
+    const canvasEl = document.getElementById("doctorWaveformCanvas");
+    if (canvasEl && canvasEl.parentElement) {
+        let kpiBar = document.getElementById("tremor-analysis-kpis");
+        if (!kpiBar) {
+            kpiBar = document.createElement("div");
+            kpiBar.id = "tremor-analysis-kpis";
+            kpiBar.style.cssText = "display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px;";
+            canvasEl.parentElement.insertBefore(kpiBar, canvasEl);
+        }
+
+        if (metrics) {
+            const freqText = metrics.dominantHz !== null ? `${metrics.dominantHz} Hz` : "N/A (< 2s)";
+            const bandBadge = metrics.dominantHz !== null
+                ? (metrics.inRestBand
+                    ? '<span style="color:#dc2626; font-weight:700;">● Rest Tremor (4–6 Hz)</span>'
+                    : '<span style="color:#16a34a; font-weight:700;">● Outside 4–6 Hz</span>')
+                : '<span style="color:#64748b;">Short recording</span>';
+
+            const accText = metrics.accRmsG !== null ? `${metrics.accRmsG} g` : `${metrics.accRmsAdc} ADC`;
+            const emgText = metrics.emgRmsMv !== null ? `${metrics.emgRmsMv} mV` : "—";
+
+            kpiBar.innerHTML = `
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:10px 12px;">
+                    <div style="font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase;">Dominant Tremor (DFT)</div>
+                    <div style="font-size:18px; font-weight:800; color:#0f172a; margin:2px 0;">${freqText}</div>
+                    <div style="font-size:11px;">${bandBadge}</div>
+                </div>
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:10px 12px;">
+                    <div style="font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase;">Tremor Intensity (RMS)</div>
+                    <div style="font-size:18px; font-weight:800; color:#0f172a; margin:2px 0;">${accText}</div>
+                    <div style="font-size:11px; color:#64748b;">3-Axis Accel (${metrics.analysedSeconds}s)</div>
+                </div>
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:10px 12px;">
+                    <div style="font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase;">Muscle Rigidity (EMG)</div>
+                    <div style="font-size:18px; font-weight:800; color:#0f172a; margin:2px 0;">${emgText}</div>
+                    <div style="font-size:11px; color:#64748b;">RMS via SignalProcessor</div>
+                </div>
+            `;
+        } else {
+            kpiBar.innerHTML = "";
+        }
+    }
+
     // Enlazar el botón directo para añadir observación tras ver la onda
     const obsBtn = document.getElementById("wfAddObsBtn");
-    obsBtn.onclick = () => {
-        closeWaveformModal();
-        openObservationModal(`BITalino Session #${sessionId} (Waveform Review)`);
-    };
+    if (obsBtn) {
+        obsBtn.onclick = () => {
+            closeWaveformModal();
+            openObservationModal(`BITalino Session #${sessionId} (Waveform Review)`);
+        };
+    }
 
     switchWaveformChannel("EMG");
 }

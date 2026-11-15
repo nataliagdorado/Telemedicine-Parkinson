@@ -1,7 +1,7 @@
 package common;
 
 /**
- * Excepción personalizada para errores en el protocolo de comunicación.
+ * Excepción personalizada. Cuando llega un JSON vacío o malo
  */
 public class ProtocolException extends Exception {
     private static final long serialVersionUID = 1L;

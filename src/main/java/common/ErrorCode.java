@@ -1,5 +1,5 @@
 package common;
-
+// @todo Diego, hay algunas que igual ya no sirven con mi GUI¿ por ejemplo, INVALID FIELD ¿? Es imposible meter uno mal si son botones. o si?
 public enum ErrorCode {
     BAD_REQUEST,            // Mensaje mal formado o JSON invalido
     UNSUPPORTED_TYPE,       // Comando no reconocido en el protocolo

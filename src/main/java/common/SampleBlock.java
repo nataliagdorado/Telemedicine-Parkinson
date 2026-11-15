@@ -8,7 +8,9 @@ package common;
 
 import java.io.Serializable;
 import java.util.List;
-
+// Empaqueto en un único bloque los cuatro canales del bitalino con session ID
+// Esta conectado con session info por foreign key. SampleBlock envia el sessionID para que Command router sepa a qué sesion abierta
+// pertenece el pquete
 public class SampleBlock implements Serializable {
     private static final long serialVersionUID=1L;
 

@@ -1,7 +1,7 @@
 package ui;
 
-import common.Message;
-import common.MessageCodec;
+import common.*;
+import doctor.DoctorService;
 import javafx.application.Platform;
 import javafx.scene.web.WebEngine;
 
@@ -9,20 +9,17 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
-import common.SymptomReport;
+
+import patient.*;
 import server.data.FileRepository;
 import server.data.Patient;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Optional;
-import common.SessionInfo;
+
 import server.data.ClinicalNote;
 import java.time.LocalDateTime;
 import java.util.UUID;
-import patient.MonitoringSessionController;
-import patient.ServerConnection;
-import patient.SignalSource;
-import patient.SimulatedSignalSource;
 import java.util.List;
 import java.util.Map;
 
@@ -42,6 +39,8 @@ public class Bridge {
 
     private MonitoringSessionController activeController;
     private ServerConnection monitoringConnection;
+
+    private final DoctorService doctorService = new DoctorService();
 
     public Bridge(WebEngine webEngine) {
         this.webEngine = webEngine;
@@ -191,76 +190,6 @@ public class Bridge {
         }).start();
     }
 
-    // PARA EL DOCTOR SI ES QUE LO PONEMOS AL FINAL
-    public void loadDoctorCohort() {
-        new Thread(() -> {
-            try {
-                FileRepository repo = new FileRepository(Paths.get("data"));
-                List<Patient> patients = repo.findAllPatients();
-                String json = MessageCodec.toJson(patients);
-
-                Platform.runLater(() -> {
-                    webEngine.executeScript(String.format("renderDoctorCohort(%s);", json));
-                });
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }).start();
-    }
-
-    public void loadPatientRecordForDoctor(String patientId) {
-        new Thread(() -> {
-            try {
-                FileRepository repo = new FileRepository(Paths.get("data"));
-                Optional<Patient> opt = repo.findPatient(patientId);
-                List<SymptomReport> reports = repo.findSymptomReports(patientId);
-                List<SessionInfo> sessions = repo.findSessions(patientId);
-                List<ClinicalNote> notes = repo.findClinicalNotes(patientId);
-
-                if (opt.isPresent()) {
-                    String pJson = MessageCodec.toJson(opt.get());
-                    String rJson = MessageCodec.toJson(reports);
-                    String sJson = MessageCodec.toJson(sessions);
-                    String nJson = MessageCodec.toJson(notes);
-
-                    Platform.runLater(() -> {
-                        webEngine.executeScript(String.format(
-                                "renderDoctorPatientDetail(%s, %s, %s, %s);",
-                                pJson, rJson, sJson, nJson
-                        ));
-                    });
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }).start();
-    }
-
-    public void saveDoctorObservation(String patientId, String recordRef, String observationText) {
-        new Thread(() -> {
-            try {
-                FileRepository repo = new FileRepository(Paths.get("data"));
-                String noteId = "NOTE-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-                String formattedText = (recordRef != null && !recordRef.isBlank())
-                        ? "[" + recordRef + "] " + observationText
-                        : observationText;
-
-                //  constructor de 4 parámetros que  inicializa los campos y el timestamp
-                ClinicalNote note = new ClinicalNote(
-                        noteId,
-                        patientId,
-                        this.currentUserId != null ? this.currentUserId : "doctor",
-                        formattedText
-                );
-                repo.saveClinicalNote(note);
-
-                // Recargar el expediente del paciente para mostrar la nueva nota al instante
-                loadPatientRecordForDoctor(patientId);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }).start();
-    }
 
     public void startSignalCapture(int samplingRateHz, int durationSeconds, String trialNotes) {
         if (activeController != null && activeController.isRunning()) {
@@ -304,7 +233,13 @@ public class Bridge {
                     repo.saveClinicalNote(contextNote);
                 }
 
-                SignalSource source = new SimulatedSignalSource();
+                String sourceType = Config.get("signal.source", "simulated");
+                String mac = Config.get("bitalino.mac", "00:21:08:35:15:00");
+                SignalSource source = "bitalino".equalsIgnoreCase(sourceType)
+                        ? new BitalinoSignalSource()
+                        : new SimulatedSignalSource();
+                source.connect(mac, samplingRateHz);
+
                 source.connect("00:21:08:35:15:00", samplingRateHz);
 
                 activeController = new MonitoringSessionController(
@@ -348,46 +283,60 @@ public class Bridge {
         }
     }
 
+
+    // para enganchar con doctor
+    public void loadDoctorCohort() {
+        new Thread(() -> {
+            try {
+                String json = doctorService.getCohortJson();
+                Platform.runLater(() -> webEngine.executeScript(String.format("renderDoctorCohort(%s);", json)));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    public void loadPatientRecordForDoctor(String patientId) {
+        new Thread(() -> {
+            try {
+                String[] jsons = doctorService.getPatientRecordJsons(patientId);
+                if (jsons != null) {
+                    Platform.runLater(() -> webEngine.executeScript(String.format(
+                            "renderDoctorPatientDetail(%s, %s, %s, %s);",
+                            jsons[0], jsons[1], jsons[2], jsons[3]
+                    )));
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    public void saveDoctorObservation(String patientId, String recordRef, String observationText) {
+        new Thread(() -> {
+            try {
+                doctorService.addClinicalObservation(patientId, this.currentUserId, recordRef, observationText);
+                loadPatientRecordForDoctor(patientId);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
     public void loadSignalWaveformForDoctor(String sessionId) {
         new Thread(() -> {
             try {
-                java.nio.file.Path csvPath = Paths.get("data", "signals", sessionId + ".csv");
-                if (java.nio.file.Files.notExists(csvPath)) {
+                DoctorService.WaveformPayload wf = doctorService.getSessionWaveform(sessionId);
+                if (wf == null) {
                     Platform.runLater(() -> webEngine.executeScript(
                             String.format("onSignalWaveformError('CSV file not found for session %s');", sessionId)
                     ));
                     return;
                 }
-
-                List<String> lines = java.nio.file.Files.readAllLines(csvPath, java.nio.charset.StandardCharsets.UTF_8);
-                List<Integer> emgList = new java.util.ArrayList<>();
-                List<Integer> accXList = new java.util.ArrayList<>();
-
-                // Saltamos la cabecera (línea 0: seq,emg,accX,accY,accZ) y leemos hasta 600 muestras para renderizar fluido
-                int step = Math.max(1, (lines.size() - 1) / 600);
-                for (int i = 1; i < lines.size(); i += step) {
-                    String line = lines.get(i).trim();
-                    if (line.isEmpty()) continue;
-                    String[] parts = line.split(",");
-                    if (parts.length >= 3) {
-                        try {
-                            emgList.add(Integer.parseInt(parts[1].trim()));
-                            accXList.add(Integer.parseInt(parts[2].trim()));
-                        } catch (NumberFormatException ignored) {}
-                    }
-                }
-
-                String emgJson = MessageCodec.toJson(emgList);
-                String accJson = MessageCodec.toJson(accXList);
-                int totalSamples = Math.max(0, lines.size() - 1);
-
-                Platform.runLater(() -> {
-                    webEngine.executeScript(String.format(
-                            "renderDoctorWaveformModal('%s', %s, %s, %d);",
-                            sessionId, emgJson, accJson, totalSamples
-                    ));
-                });
-
+                Platform.runLater(() -> webEngine.executeScript(String.format(
+                        "renderDoctorWaveformModal('%s', %s, %s, %d, %s);",
+                        sessionId, wf.emgJson(), wf.accJson(), wf.totalSamples(), wf.metricsJson()
+                )));
             } catch (Exception e) {
                 e.printStackTrace();
                 Platform.runLater(() -> webEngine.executeScript("onSignalWaveformError('Failed to parse signal CSV');"));

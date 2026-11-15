@@ -6,6 +6,7 @@
 
 package common;
 
+// Almacena todos los metadatos de cada sesión de monitorización
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.LocalDateTime;

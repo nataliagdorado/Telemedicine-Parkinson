@@ -3,6 +3,7 @@
 //Registro completo guardado en el Disco o Base de Datos de una prueba realizada por un paciente, uniendo los metadatos
 //de la sesion, las muestras del bitalino y el reporte de sintomas
 
+// por composicion sessionInfo+signalblocks
 
 package server.data;
 

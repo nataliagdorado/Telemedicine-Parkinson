@@ -11,6 +11,7 @@ import java.util.function.Function;
 /**
  * Codificador y decodificador JSON para el protocolo de red.
  * Incluye adaptador para serializar LocalDateTime de forma segura en Java 17.
+ * CONVIERTE Message y POJOS a JSON en encode, y desconvierte en decode
  */
 public class MessageCodec {
 
