@@ -717,7 +717,7 @@ public class CommandRouter {
         return response;
     }
 
-    private Message buildErrorResponse(String requestId, ErrorCode code, String detail) {
+    static Message buildErrorResponse(String requestId, ErrorCode code, String detail) {
         Message error = new Message("ERROR", requestId);
         error.setStatus("FAILED");
         error.addData("code", code.name());   // codigo fijo, documentado en el protocolo

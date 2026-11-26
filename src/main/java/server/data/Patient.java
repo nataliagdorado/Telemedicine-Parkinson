@@ -5,11 +5,8 @@
 
 package server.data;
 
-import common.SessionInfo;
-
 import java.io.Serializable;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.Period;
 
 public class Patient implements Serializable {

@@ -71,7 +71,7 @@ public class SymptomReport implements Serializable{
     }
 
     public Long getMinutesSinceLastDose() {   // calculado, no guardado
-        if (lastDoseTime == null) {
+        if (lastDoseTime == null || timeStamp == null) {
             return null;
         } else {
             return Duration.between(lastDoseTime, timeStamp).toMinutes();
@@ -128,7 +128,7 @@ public class SymptomReport implements Serializable{
     @Override
     public String toString() {
         return "SymptomReport{" +
-                "patientID='" + patientId + '\'' +
+                "patientId='" + patientId + '\'' +
                 ", reportId='" + reportId + '\'' +
                 ", sessionId='" + sessionId + '\'' +
                 ", timeStamp=" + timeStamp +

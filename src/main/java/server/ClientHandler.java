@@ -1,5 +1,6 @@
 package server;
 
+import common.ErrorCode;
 import common.Message;
 import common.MessageCodec;
 import common.ProtocolException;
@@ -63,9 +64,7 @@ public class ClientHandler implements Runnable {
 
                 } catch (ProtocolException pe) {
                     LOGGER.warning("[Thread " + threadId + "] Protocol error: " + pe.getMessage());
-                    Message errorResponse = new Message("ERROR", "none");
-                    errorResponse.addData("code", "BAD_REQUEST");
-                    errorResponse.addData("message", pe.getMessage());
+                    Message errorResponse = CommandRouter.buildErrorResponse("UNKNOWN", ErrorCode.BAD_REQUEST, pe.getMessage());
                     writer.println(MessageCodec.encode(errorResponse));
                 }
             }

@@ -34,7 +34,7 @@ public final class SymptomValidator {
         if (dose != null && reportTime != null) {
             if (dose.isAfter(reportTime)) {
                 errors.add("La última dosis no puede ser posterior al reporte");
-            } else if (Duration.between(dose, reportTime).toHours() > SymptomCatalog.MAX_HOURS_SINCE_DOSE) {
+            } else if (Duration.between(dose, reportTime).toMinutes() > SymptomCatalog.MAX_HOURS_SINCE_DOSE *60){
                 errors.add("La última dosis es de hace más de " + SymptomCatalog.MAX_HOURS_SINCE_DOSE + " h: revisa la hora");
             }
         }
