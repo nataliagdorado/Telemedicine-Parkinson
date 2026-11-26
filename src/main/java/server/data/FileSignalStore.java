@@ -11,15 +11,12 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.text.Normalizer;
 import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.Locale;
 
 /**
  * Guarda las muestras de cada sesión en su propio CSV:
- *   data/signals/<Nombre_Paciente>_<yyyyMMdd_HHmmss>_<sessionId>.csv
+ *   data/signals/<patientId>_<yyyyMMdd_HHmmss>_<sessionId>.csv
  *
  */
 public class FileSignalStore implements SignalStore {
@@ -64,14 +61,14 @@ public class FileSignalStore implements SignalStore {
             throw new RepositoryException("La sesión " + info.getSessionId() + " ya está abierta");
         }
 
-        String fileName = sanitize(patient.getName()) + "_"
+        String fileName = sanitize(patient.getPatientId()) + "_"
                 + info.getStartTime().withNano(0).format(FILE_DATE) + "_"
                 + info.getSessionId() + ".csv";
         Path file = signalsDir.resolve(fileName);
 
         try {
             BufferedWriter writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);                 // falla si ya existe: nunca sobrescribe ==> nos funciona cómo segunda barrera porque dos hilos pueden hacer ContainsKey a la vez y pasar
-            writer.write("# patient=" + patient.getName() + "; patientId=" + patient.getPatientId());
+            writer.write("# patientId=" + patient.getPatientId());
             writer.newLine();
             writer.write("# session=" + info.getSessionId() + "; start=" + info.getStartTime() + "; fs=" + info.getSamplingRateHz() + " Hz; channels=" + Arrays.toString(info.getChannels()));
             writer.newLine();
@@ -147,6 +144,56 @@ public class FileSignalStore implements SignalStore {
                 throw new RepositoryException("No se pudo cerrar la sesión " + sessionId, e);
             }
         }
+    }
+
+    @Override
+    public SampleBlock readRecording(SessionInfo info) throws RepositoryException {
+        if (info == null || info.getSignalFile() == null) {
+            throw new RepositoryException("La sesión no tiene fichero de señal");
+        }
+        Path file = Path.of(info.getSignalFile());
+        if (Files.notExists(file)) {
+            throw new RepositoryException("No existe el fichero de señal " + file);
+        }
+
+        List<String> lines;
+        try {
+            lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new RepositoryException("No se pudo leer " + file, e);
+        }
+
+        List<Integer> emg = new ArrayList<>();
+        List<Integer> x = new ArrayList<>();
+        List<Integer> y = new ArrayList<>();
+        List<Integer> z = new ArrayList<>();
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i).trim();
+            if (line.isEmpty() || line.startsWith("#") || line.equals(COLUMNS)) {
+                continue;                                       // cabecera: comentarios y nombres de columna
+            }
+            String[] parts = line.split(",");                   // nSeq, t_s, EMG, ACC_X, ACC_Y, ACC_Z
+            boolean lastLine = (i == lines.size() - 1);
+            try {
+                if (parts.length != 6) {
+                    throw new NumberFormatException("expected 6 columns");
+                }
+                int emgValue = Integer.parseInt(parts[2]);
+                int xValue = Integer.parseInt(parts[3]);
+                int yValue = Integer.parseInt(parts[4]);
+                int zValue = Integer.parseInt(parts[5]);
+                emg.add(emgValue);
+                x.add(xValue);
+                y.add(yValue);
+                z.add(zValue);
+            } catch (NumberFormatException e) {
+                if (lastLine) {
+                    break;                                      // última línea a medio escribir: se ignora
+                }
+                throw new RepositoryException(file.getFileName() + ", línea " + (i + 1) + " corrupta", e);
+            }
+        }
+        return new SampleBlock(info.getSessionId(), emg, x, y, z);
     }
 
     @Override

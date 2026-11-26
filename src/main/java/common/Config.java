@@ -18,20 +18,26 @@ public class Config {
         }
     }
 
+    // Prioridad: 1) propiedad del sistema (-Dclave=valor o System.setProperty, la usan los tests)
+    //            2) config/config.properties   3) valor por defecto
     public static String get(String key, String defaultValue) {
+        String override = System.getProperty(key);
+        if (override != null) {
+            return override;
+        }
         return properties.getProperty(key, defaultValue);
     }
 
     public static int getInt(String key, int defaultValue) {
         try {
-            return Integer.parseInt(properties.getProperty(key, String.valueOf(defaultValue)));
+            return Integer.parseInt(get(key, String.valueOf(defaultValue)));
         } catch (NumberFormatException e) {
             return defaultValue;
         }
     }
     public static double getDouble(String key, double defaultValue) {
         try {
-            return Double.parseDouble(properties.getProperty(key, String.valueOf(defaultValue)));
+            return Double.parseDouble(get(key, String.valueOf(defaultValue)));
         } catch (NumberFormatException e) {
             return defaultValue;
         }

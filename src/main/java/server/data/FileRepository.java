@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import java.util.logging.Logger;
+
 /**
  * Implementación de Repository con ficheros de texto.
  *
@@ -30,6 +32,7 @@ import java.util.stream.Collectors;
  */
 
 public class FileRepository implements Repository {
+    private static final Logger LOGGER = Logger.getLogger(FileRepository.class.getName());
     private final Path patientsFile;
     private final Path symptomsFile;
     private final Path sessionsFile;
@@ -63,6 +66,7 @@ public class FileRepository implements Repository {
      * @throws RepositoryException
      */
     private void append (Path file, Object obj) throws RepositoryException{
+        repairLastLine(file, obj.getClass());
         String line = MessageCodec.toJson(obj) + System.lineSeparator();
         try {
             Files.writeString(file, line, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
@@ -84,6 +88,7 @@ public class FileRepository implements Repository {
         } catch (IOException e) {
             throw new RepositoryException("No se pudo leer "+ file, e);
         }
+        int lastDataLine = lastNonEmptyLine(lines);
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i).trim();
             if (line.isEmpty()) {
@@ -92,10 +97,50 @@ public class FileRepository implements Repository {
             try {
                 result.add(MessageCodec.fromJson(line, type));
             } catch (ProtocolException e) {
+                if (i == lastDataLine) {
+                    // Última línea a medio escribir (corte de luz, cierre brusco): ese dato nunca llegó a guardarse entero
+                    LOGGER.warning(file.getFileName() + ", línea " + (i + 1) + " incompleta: se ignora");
+                    break;
+                }
                 throw new RepositoryException(file.getFileName() + ", línea " + (i + 1) + " corrupta", e);
             }
         }
         return result;
+    }
+    /** Índice de la última línea con contenido (las líneas vacías del final no cuentan), o -1 si no hay ninguna. */
+    private static int lastNonEmptyLine(List<String> lines) {
+        for (int i = lines.size() - 1; i >= 0; i--) {
+            if (!lines.get(i).trim().isEmpty()) {
+                return i;
+            }
+        }
+        return -1;
+    }
+    /**
+     * Si la última línea del fichero quedó a medio escribir, la elimina antes de añadir otra.
+     * Sin esto, el siguiente append se pegaría a ella y también se perdería el dato nuevo.
+     */
+    private void repairLastLine(Path file, Class<?> type) throws RepositoryException {
+        if (Files.notExists(file)) {
+            return;
+        }
+        List<String> lines;
+        try {
+            lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new RepositoryException("No se pudo leer " + file, e);
+        }
+        int last = lastNonEmptyLine(lines);
+        if (last < 0) {
+            return;                                   // fichero vacío: nada que reparar
+        }
+        try {
+            MessageCodec.fromJson(lines.get(last).trim(), type);
+            return;                                   // la última línea está bien: lo normal
+        } catch (ProtocolException e) {
+            LOGGER.warning(file.getFileName() + ": se elimina la última línea incompleta antes de escribir");
+            rewrite(file, readAll(file, type));       // readAll ya ignora la línea cortada
+        }
     }
 
     /** Reescribe el fichero entero. Primero a un .tmp y luego lo sustituye de golpe.

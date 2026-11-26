@@ -8,6 +8,8 @@ import server.AdminAuth;
 import server.HospitalServer;
 
 import java.net.Socket;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -18,18 +20,33 @@ public class ConnectionTest {
     // Contraseña de los pacientes de prueba P001 y P002 (datos sintéticos de SeedData)
     private static final String TEST_PASSWORD = "1234";
 
-    @BeforeAll
-    public static void setup() {
-        // Solo arranca el servidor si no hay uno corriendo previamente
-        if (!isServerRunning("127.0.0.1", 9000)) {
-            Thread serverThread = new Thread(() -> HospitalServer.main(new String[]{}));
-            serverThread.setDaemon(true);
-            serverThread.start();
+    // Puerto propio de los tests: distinto del 9000, para no mezclarse nunca con el servidor "de verdad"
+    private static final int TEST_PORT = 9100;
 
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException ignored) {}
+    @BeforeAll
+    public static void setup() throws Exception {
+        // Servidor de pruebas aislado: carpeta de datos temporal y nueva en cada ejecución, y su propio puerto.
+        // Se fija ANTES de tocar HospitalServer: sus constantes PORT y DATA_DIR se leen al cargar la clase
+        Path testData = Files.createTempDirectory("telemed-test-");
+        System.setProperty("data.dir", testData.toString());
+        System.setProperty("server.port", String.valueOf(TEST_PORT));
+        System.setProperty("server.ip", "127.0.0.1");      // el cliente de test siempre en local, diga lo que diga config.properties
+        System.out.println("[ConnectionTest] Test data in " + testData);
+
+        // Si el puerto ya está ocupado no se reutiliza: escribiríamos en los datos de otro servidor
+        if (isServerRunning("127.0.0.1", TEST_PORT)) {
+            fail("Port " + TEST_PORT + " is already in use: close whatever is using it before running the tests");
         }
+
+        Thread serverThread = new Thread(() -> HospitalServer.main(new String[]{}));
+        serverThread.setDaemon(true);
+        serverThread.start();
+
+        // Esperar a que el servidor acepte conexiones (máximo 5 s) en lugar de un sleep fijo
+        for (int i = 0; i < 50 && !isServerRunning("127.0.0.1", TEST_PORT); i++) {
+            Thread.sleep(100);
+        }
+        assertTrue(isServerRunning("127.0.0.1", TEST_PORT), "The test server did not start on port " + TEST_PORT);
     }
 
     private static boolean isServerRunning(String host, int port) {
@@ -92,6 +109,31 @@ public class ConnectionTest {
             msg.addData("sessionId", sessionId);
         }
         return msg;
+    }
+
+    // Envía un SAMPLE_BLOCK válido a una sesión abierta (1000 Hz, ADC_10bit)
+    private Message sendBlock(ServerConnection conn, String token, String sessionId, long firstSeq,
+                              List<Integer> emg, List<Integer> accX, List<Integer> accY, List<Integer> accZ) throws Exception {
+        Message block = new Message("SAMPLE_BLOCK", "req-block-" + System.nanoTime());
+        block.addData("sessionToken", token);
+        block.addData("sessionId", sessionId);
+        block.addData("firstSeq", firstSeq);
+        block.addData("samplingRateHz", 1000);
+        block.addData("units", "ADC_10bit");
+        block.addData("emg", emg);
+        block.addData("accX", accX);
+        block.addData("accY", accY);
+        block.addData("accZ", accZ);
+        return conn.send(block);
+    }
+
+    // Convierte una lista JSON de números (Gson los lee como 512.0) en enteros
+    private static List<Integer> asInts(Object jsonList) {
+        List<Integer> result = new java.util.ArrayList<>();
+        for (Object value : (List<?>) jsonList) {
+            result.add(((Number) value).intValue());
+        }
+        return result;
     }
 
     // Devuelve la pauta de medicación actual del paciente autenticado (vía GET_MY_RECORD)
@@ -838,5 +880,84 @@ public class ConnectionTest {
         assertEquals("UNKNOWN_PATIENT", conn.send(unknown).getData().get("code"));
 
         conn.close();
+    }
+
+    // GET_SESSION_SIGNAL: el médico recibe exactamente las muestras que envió el paciente, con sus metadatos
+    @Test
+    public void testDoctorGetsSessionSignal() throws Exception {
+        // P001 graba una sesión corta: dos bloques, 5 muestras en total
+        ServerConnection patientConn = new ServerConnection();
+        patientConn.connect();
+        String patientToken = login(patientConn, "P001");
+        String sessionId = startSession(patientConn, patientToken);
+        assertEquals("ACK", sendBlock(patientConn, patientToken, sessionId, 0,
+                List.of(510, 511, 512), List.of(500, 501, 502), List.of(600, 601, 602), List.of(700, 701, 702)).getType());
+        assertEquals("ACK", sendBlock(patientConn, patientToken, sessionId, 3,
+                List.of(513, 514), List.of(503, 504), List.of(603, 604), List.of(703, 704)).getType());
+        stopSession(patientConn, patientToken, sessionId);
+        patientConn.close();
+
+        // El médico pide la señal
+        ServerConnection doctorConn = new ServerConnection();
+        doctorConn.connect();
+        String doctorToken = doctorLogin(doctorConn);
+        Message request = new Message("GET_SESSION_SIGNAL", "req-signal");
+        request.addData("sessionToken", doctorToken);
+        request.addData("sessionId", sessionId);
+        Message response = doctorConn.send(request);
+
+        assertEquals("ACK", response.getType());
+        assertEquals("SIGNAL_SENT", response.getStatus());
+        assertEquals("P001", response.getPatientId());
+        assertEquals("COMPLETED", response.getData().get("sessionStatus"));
+        assertEquals(1000, ((Number) response.getData().get("samplingRateHz")).intValue());
+        assertEquals("ADC_10bit", response.getData().get("units"));
+        assertNotNull(response.getData().get("startTime"));
+        assertEquals(5, ((Number) response.getData().get("totalSamples")).intValue());
+
+        // Mismos valores, mismo orden y cada canal en su sitio (EMG no es t_s)
+        assertEquals(List.of(510, 511, 512, 513, 514), asInts(response.getData().get("emg")));
+        assertEquals(List.of(500, 501, 502, 503, 504), asInts(response.getData().get("accX")));
+        assertEquals(List.of(600, 601, 602, 603, 604), asInts(response.getData().get("accY")));
+        assertEquals(List.of(700, 701, 702, 703, 704), asInts(response.getData().get("accZ")));
+
+        doctorConn.close();
+    }
+
+    // GET_SESSION_SIGNAL: sin sessionId, con una sesión inexistente o con token de paciente se rechaza
+    @Test
+    public void testGetSessionSignalInvalidRequestsAreRejected() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String doctorToken = doctorLogin(conn);
+
+        Message missing = new Message("GET_SESSION_SIGNAL", "req-signal-missing");
+        missing.addData("sessionToken", doctorToken);
+        assertEquals("MISSING_FIELD", conn.send(missing).getData().get("code"));
+
+        Message unknown = new Message("GET_SESSION_SIGNAL", "req-signal-unknown");
+        unknown.addData("sessionToken", doctorToken);
+        unknown.addData("sessionId", "SES-does-not-exist");
+        assertEquals("UNKNOWN_SESSION", conn.send(unknown).getData().get("code"));
+        conn.close();
+
+        ServerConnection patientConn = new ServerConnection();
+        patientConn.connect();
+        String patientToken = login(patientConn, "P001");
+        Message asPatient = new Message("GET_SESSION_SIGNAL", "req-signal-patient");
+        asPatient.addData("sessionToken", patientToken);
+        asPatient.addData("sessionId", "SES-does-not-exist");
+        assertEquals("FORBIDDEN", patientConn.send(asPatient).getData().get("code"));
+        patientConn.close();
+    }
+
+    // Aislamiento: el servidor de test usa su propio puerto y una carpeta temporal, nunca data/
+    @Test
+    public void testUsesIsolatedTestServer() {
+        assertEquals(TEST_PORT, HospitalServer.PORT);
+        String dataDir = System.getProperty("data.dir");
+        assertNotNull(dataDir);
+        assertNotEquals("data", dataDir);
+        assertTrue(dataDir.contains("telemed-test-"));
     }
 }

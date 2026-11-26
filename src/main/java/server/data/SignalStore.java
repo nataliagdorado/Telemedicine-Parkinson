@@ -4,7 +4,7 @@ import common.SampleBlock;
 import common.SessionInfo;
 /**
  * Guarda las muestras del BITalino en un fichero por sesión a medida que llegan.
- * Requisito obligatorio: fichero con el nombre del paciente y la fecha/hora
+ * Un fichero por sesión, identificado por patientId, fecha/hora de inicio y sessionId (sin datos personales)
  *
  * Ciclo de vida de una grabación
  *  openRecording  ->  appendBlock (n veces)  ->  closeRecording
@@ -26,6 +26,11 @@ public interface SignalStore extends AutoCloseable{
 
     /** Cierra el fichero de la sesión. Llamarlo dos veces no es un error. */
     void closeRecording(String sessionId) throws RepositoryException;
+    /**
+     * Lee todas las muestras guardadas de una sesión (en las mismas unidades: ADC_10bit).
+     * Funciona también con la sesión aún abierta: devuelve lo escrito hasta ahora.
+     */
+    SampleBlock readRecording(SessionInfo info) throws RepositoryException;
 
     /** Cierra todos los ficheros abiertos (al apagar el servidor). */
     @Override

@@ -20,7 +20,7 @@ public class CommandRouter {
     // Comandos que solo se aceptan después del LOGIN (llevan sessionToken)
     private static final Set<String> PROTECTED_COMMANDS = Set.of("SYMPTOM_REPORT", "START_MONITORING", "SAMPLE_BLOCK", "STOP_MONITORING","GET_MY_RECORD","UPDATE_PROFILE");
     // Comandos del médico
-    private static final Set<String> DOCTOR_COMMANDS = Set.of("LIST_PATIENTS", "GET_PATIENT_RECORD", "ADD_CLINICAL_NOTE");
+    private static final Set<String> DOCTOR_COMMANDS = Set.of("LIST_PATIENTS", "GET_PATIENT_RECORD", "ADD_CLINICAL_NOTE", "GET_SESSION_SIGNAL");
 
     // A VER, para q el router use este gestor
     private final SessionManager sessionManager;
@@ -143,6 +143,9 @@ public class CommandRouter {
 
             case "ADD_CLINICAL_NOTE":
                 return handleAddClinicalNote(request);
+
+            case "GET_SESSION_SIGNAL":
+                return handleGetSessionSignal(request);
 
             case "PING":
                 return handlePing(request);
@@ -644,6 +647,43 @@ public class CommandRouter {
         response.setStatus("NOTE_SAVED");
         response.addData("noteId", note.getNoteId());
         response.addData("timestamp", note.getTimestamp().toString());
+        return response;
+    }
+
+    // Médico: muestras guardadas de una sesión, con los metadatos necesarios para interpretarlas
+    private Message handleGetSessionSignal(Message request) {
+        String sessionId = readString(request.getData(), "sessionId");
+        if (sessionId == null || sessionId.isBlank()) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD, "Missing sessionId");
+        }
+
+        SessionInfo info;
+        SampleBlock samples;
+        try {
+            Optional<SessionInfo> found = repository.findSession(sessionId);
+            if (found.isEmpty()) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.UNKNOWN_SESSION, "Unknown session: " + sessionId);
+            }
+            info = found.get();
+            samples = signalStore.readRecording(info);
+        } catch (RepositoryException e) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR, "Could not read signal: " + e.getMessage());
+        }
+
+        Message response = new Message("ACK", request.getRequestId());
+        response.setPatientId(info.getPatientId());
+        response.setStatus("SIGNAL_SENT");
+        response.addData("sessionId", sessionId);
+        response.addData("sessionStatus", info.getStatus().name());
+        response.addData("startTime", info.getStartTime());
+        response.addData("samplingRateHz", info.getSamplingRateHz());
+        response.addData("channels", info.getChannels());
+        response.addData("units", SignalStore.UNITS);
+        response.addData("totalSamples", samples.getEmgSamples().size());
+        response.addData("emg", samples.getEmgSamples());
+        response.addData("accX", samples.getAccX());
+        response.addData("accY", samples.getAccY());
+        response.addData("accZ", samples.getAccZ());
         return response;
     }
 
