@@ -26,6 +26,8 @@ public interface Repository {
 
     /** Inserta un paciente nuevo. Falla si ya existe uno con ese id. */
     void savePatient(Patient patient) throws RepositoryException;
+    /** Sustituye los datos de un paciente que ya existe. Falla si no existe. */
+    void updatePatient(Patient patient) throws RepositoryException;
 
     /** El paciente con ese id, o Optional.empty() si no existe. Con esto evitamos encontrarnos con NullPointerException en caso de no encontrar el id del paciente*/
     Optional<Patient> findPatient(String patientId) throws RepositoryException;

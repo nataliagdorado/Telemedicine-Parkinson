@@ -155,6 +155,24 @@ public class FileRepository implements Repository {
     }
 
     @Override
+    public synchronized void updatePatient(Patient patient) throws RepositoryException {
+        if (patient == null) {
+            throw new RepositoryException("Falta patientId");
+        }
+        requireId(patient.getPatientId(), "patientId");
+        List<Patient> all = readAll(patientsFile, Patient.class);
+        for (int i = 0; i < all.size(); i++) {
+            if (all.get(i).getPatientId().equals(patient.getPatientId())) {
+                all.set(i, patient);           // sustituye la versión vieja por la nueva
+                rewrite(patientsFile, all);
+                return;
+            }
+        }
+        throw new RepositoryException("No existe el paciente " + patient.getPatientId());
+    }
+
+
+    @Override
     public synchronized Optional<Patient> findPatient(String patientId) throws RepositoryException {
         return readAll(patientsFile, Patient.class).stream()
                 .filter(patient -> patient.getPatientId().equals(patientId))

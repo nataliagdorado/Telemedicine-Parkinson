@@ -14,6 +14,7 @@ public class SymptomReport implements Serializable{
 
     private String patientId;
     private String reportId;
+    private String sessionId;
     private LocalDateTime timeStamp;
     private int rigidityLevel;
     private int tremorLevel;
@@ -44,6 +45,9 @@ public class SymptomReport implements Serializable{
 
     public String getReportId() {
         return reportId;
+    }
+    public String getSessionId() {
+        return sessionId;
     }
 
     public LocalDateTime getTimeStamp() {
@@ -89,6 +93,9 @@ public class SymptomReport implements Serializable{
     public void setReportId(String reportId) {
         this.reportId = reportId;
     }
+    public void setSessionId(String sessionId) {
+        this.sessionId = sessionId;
+    }
 
     public void setTimeStamp(LocalDateTime timeStamp) {
         this.timeStamp = timeStamp;
@@ -123,6 +130,7 @@ public class SymptomReport implements Serializable{
         return "SymptomReport{" +
                 "patientID='" + patientId + '\'' +
                 ", reportId='" + reportId + '\'' +
+                ", sessionId='" + sessionId + '\'' +
                 ", timeStamp=" + timeStamp +
                 ", rigidityLevel=" + rigidityLevel +
                 ", tremorLevel=" + tremorLevel +

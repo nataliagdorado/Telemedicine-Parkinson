@@ -9,10 +9,14 @@ import server.HospitalServer;
 
 import java.net.Socket;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 public class ConnectionTest {
+
+    // Contraseña de los pacientes de prueba P001 y P002 (datos sintéticos de SeedData)
+    private static final String TEST_PASSWORD = "1234";
 
     @BeforeAll
     public static void setup() {
@@ -41,8 +45,70 @@ public class ConnectionTest {
         Message login = new Message("LOGIN", "req-login-" + patientId);
         login.setPatientId(patientId);
         login.addData("role", "PATIENT");
+        login.addData("password", TEST_PASSWORD);
         Message response = conn.send(login);
         return (String) response.getData().get("sessionToken");
+    }
+
+    // Login del médico (credencial de especialista que acepta handleLogin) y devuelve su token
+    private String doctorLogin(ServerConnection conn) throws Exception {
+        Message login = new Message("LOGIN", "req-login-doctor-" + System.nanoTime());
+        login.setPatientId("doctor");
+        login.addData("role", "DOCTOR");
+        login.addData("password", "admin2026");
+        Message response = conn.send(login);
+        return (String) response.getData().get("sessionToken");
+    }
+
+    // Abre una sesión de monitorización y devuelve su sessionId
+    private String startSession(ServerConnection conn, String token) throws Exception {
+        Message start = new Message("START_MONITORING", "req-start-" + System.nanoTime());
+        start.addData("sessionToken", token);
+        start.addData("samplingRateHz", 1000);
+        start.addData("channels", List.of(0, 1, 2, 3));
+        Message response = conn.send(start);
+        assertEquals("ACK", response.getType());
+        return (String) response.getData().get("sessionId");
+    }
+
+    // Cierra la sesión como si la parase el paciente
+    private void stopSession(ServerConnection conn, String token, String sessionId) throws Exception {
+        Message stop = new Message("STOP_MONITORING", "req-stop-" + System.nanoTime());
+        stop.addData("sessionToken", token);
+        stop.addData("sessionId", sessionId);
+        stop.addData("reason", "USER");
+        assertEquals("ACK", conn.send(stop).getType());
+    }
+
+    // Reporte de síntomas válido; si sessionId es null, no se envía el campo (reporte fuera de sesión)
+    private Message symptomReport(String token, String sessionId) {
+        Message msg = new Message("SYMPTOM_REPORT", "req-symptom-" + System.nanoTime());
+        msg.addData("sessionToken", token);
+        msg.addData("rigidityLevel", 2);
+        msg.addData("tremorLevel", 3);
+        msg.addData("medicationTaken", true);
+        msg.addData("freezingEpisodes", false);
+        if (sessionId != null) {
+            msg.addData("sessionId", sessionId);
+        }
+        return msg;
+    }
+
+    // Devuelve la pauta de medicación actual del paciente autenticado (vía GET_MY_RECORD)
+    private String currentSchedule(ServerConnection conn, String token) throws Exception {
+        Message request = new Message("GET_MY_RECORD", "req-record-" + System.nanoTime());
+        request.addData("sessionToken", token);
+        Message response = conn.send(request);
+        Map<?, ?> patient = (Map<?, ?>) response.getData().get("patient");
+        return (String) patient.get("medicationSchedule");
+    }
+
+    // Envía un UPDATE_PROFILE con la pauta indicada
+    private Message updateSchedule(ServerConnection conn, String token, String schedule) throws Exception {
+        Message request = new Message("UPDATE_PROFILE", "req-update-" + System.nanoTime());
+        request.addData("sessionToken", token);
+        request.addData("medicationSchedule", schedule);
+        return conn.send(request);
     }
 
     @Test
@@ -74,6 +140,7 @@ public class ConnectionTest {
         Message loginMsg = new Message("LOGIN", "req-login");
         loginMsg.setPatientId("P001");                  // paciente que existe (SeedData)
         loginMsg.addData("role", "PATIENT");
+        loginMsg.addData("password", TEST_PASSWORD);
 
         Message response = conn.send(loginMsg);
 
@@ -232,6 +299,7 @@ public class ConnectionTest {
         Message loginMsg = new Message("LOGIN", "req-login-unknown");
         loginMsg.setPatientId("p001");                  // minusculas: no existe en SeedData
         loginMsg.addData("role", "PATIENT");
+        loginMsg.addData("password", TEST_PASSWORD);
 
         Message response = conn.send(loginMsg);
 
@@ -315,5 +383,460 @@ public class ConnectionTest {
 
         // Verifica que el registro de clientes no sea nulo y este monitorizado
         assertNotNull(server.HospitalServer.clientRegistry);
+    }
+
+    // C4: un reporte se puede asociar a una sesión propia, aunque ya esté cerrada
+    @Test
+    public void testSymptomReportLinkedToOwnSession() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = login(conn, "P001");
+
+        String sessionId = startSession(conn, token);
+        stopSession(conn, token, sessionId);            // el reporte llega con la sesión ya COMPLETED
+
+        Message response = conn.send(symptomReport(token, sessionId));
+
+        assertEquals("ACK", response.getType());
+        assertEquals("RECORDED", response.getStatus());
+        assertEquals(sessionId, response.getData().get("sessionId"));
+
+        conn.close();
+    }
+
+    // C4: un paciente no puede asociar su reporte a la sesión de otro
+    @Test
+    public void testSymptomReportWithForeignSessionIsRejected() throws Exception {
+        ServerConnection connA = new ServerConnection();
+        connA.connect();
+        String tokenA = login(connA, "P001");
+        String sessionA = startSession(connA, tokenA);
+
+        ServerConnection connB = new ServerConnection();
+        connB.connect();
+        String tokenB = login(connB, "P002");
+
+        Message response = connB.send(symptomReport(tokenB, sessionA));
+
+        assertEquals("ERROR", response.getType());
+        assertEquals("UNKNOWN_SESSION", response.getData().get("code"));
+
+        stopSession(connA, tokenA, sessionA);
+        connA.close();
+        connB.close();
+    }
+
+    // C4: sessionId inexistente o vacío se rechaza
+    @Test
+    public void testSymptomReportWithInvalidSessionIsRejected() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = login(conn, "P001");
+
+        Message unknown = conn.send(symptomReport(token, "SES-does-not-exist"));
+        assertEquals("ERROR", unknown.getType());
+        assertEquals("UNKNOWN_SESSION", unknown.getData().get("code"));
+
+        Message blank = conn.send(symptomReport(token, ""));
+        assertEquals("ERROR", blank.getType());
+        assertEquals("INVALID_FIELD", blank.getData().get("code"));
+
+        conn.close();
+    }
+
+    // GET_MY_RECORD: el paciente recibe su perfil, sus reportes y sus sesiones, y solo los suyos
+    @Test
+    public void testGetMyRecordReturnsOnlyOwnData() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = login(conn, "P001");
+        conn.send(symptomReport(token, null));          // asegura que P001 tiene al menos un reporte
+
+        Message request = new Message("GET_MY_RECORD", "req-record");
+        request.addData("sessionToken", token);
+        Message response = conn.send(request);
+
+        assertEquals("ACK", response.getType());
+        assertEquals("RECORD_SENT", response.getStatus());
+
+        Map<?, ?> patient = (Map<?, ?>) response.getData().get("patient");
+        assertEquals("P001", patient.get("patientId"));
+
+        List<?> reports = (List<?>) response.getData().get("symptomReports");
+        assertFalse(reports.isEmpty());
+        for (Object report : reports) {
+            assertEquals("P001", ((Map<?, ?>) report).get("patientId"));   // ningún reporte de otro paciente
+        }
+
+        List<?> sessions = (List<?>) response.getData().get("sessions");
+        for (Object session : sessions) {
+            assertEquals("P001", ((Map<?, ?>) session).get("patientId"));
+        }
+
+        conn.close();
+    }
+
+    // GET_MY_RECORD sin token se rechaza
+    @Test
+    public void testGetMyRecordWithoutLoginIsRejected() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+
+        Message request = new Message("GET_MY_RECORD", "req-record-nologin");
+        request.setPatientId("P002");                   // intenta leer el historial de otro sin login
+        Message response = conn.send(request);
+
+        assertEquals("ERROR", response.getType());
+        assertEquals("UNAUTHENTICATED", response.getData().get("code"));
+
+        conn.close();
+    }
+
+    // UPDATE_PROFILE: el cambio se guarda en el servidor y el login sigue funcionando (no se pierde la contraseña)
+    @Test
+    public void testUpdateProfileChangesScheduleAndKeepsPassword() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = login(conn, "P002");
+        String original = currentSchedule(conn, token);
+
+        try {
+            Message response = updateSchedule(conn, token, "Levodopa 10:00 (test)");
+            assertEquals("ACK", response.getType());
+            assertEquals("PROFILE_UPDATED", response.getStatus());
+            assertEquals("Levodopa 10:00 (test)", currentSchedule(conn, token));
+
+            // Si updatePatient hubiera perdido el hash, este login fallaría
+            ServerConnection again = new ServerConnection();
+            again.connect();
+            assertNotNull(login(again, "P002"));
+            again.close();
+        } finally {
+            updateSchedule(conn, token, original);      // deja los datos como estaban
+            conn.close();
+        }
+    }
+
+    // UPDATE_PROFILE sin campos o con un campo vacío se rechaza
+    @Test
+    public void testUpdateProfileWithInvalidDataIsRejected() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = login(conn, "P002");
+
+        Message empty = new Message("UPDATE_PROFILE", "req-update-empty");
+        empty.addData("sessionToken", token);
+        Message noFields = conn.send(empty);
+        assertEquals("ERROR", noFields.getType());
+        assertEquals("MISSING_FIELD", noFields.getData().get("code"));
+
+        Message blank = updateSchedule(conn, token, "   ");
+        assertEquals("ERROR", blank.getType());
+        assertEquals("INVALID_FIELD", blank.getData().get("code"));
+
+        conn.close();
+    }
+
+    // UPDATE_PROFILE sin token se rechaza
+    @Test
+    public void testUpdateProfileWithoutLoginIsRejected() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+
+        Message request = new Message("UPDATE_PROFILE", "req-update-nologin");
+        request.setPatientId("P002");
+        request.addData("medicationSchedule", "Nada");
+        Message response = conn.send(request);
+
+        assertEquals("ERROR", response.getType());
+        assertEquals("UNAUTHENTICATED", response.getData().get("code"));
+
+        conn.close();
+    }
+
+    // START_MONITORING con nota: la guarda el servidor; sin nota o con nota vacía no se guarda nada
+    @Test
+    public void testStartMonitoringSavesPatientNote() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = login(conn, "P001");
+
+        // Con nota
+        Message withNote = new Message("START_MONITORING", "req-start-note");
+        withNote.addData("sessionToken", token);
+        withNote.addData("samplingRateHz", 1000);
+        withNote.addData("channels", List.of(0, 1, 2, 3));
+        withNote.addData("notes", "Prueba tras tomar la medicación (test)");
+        Message started = conn.send(withNote);
+        assertEquals("ACK", started.getType());
+        assertEquals(Boolean.TRUE, started.getData().get("noteSaved"));
+        stopSession(conn, token, (String) started.getData().get("sessionId"));
+
+        // Nota vacía: la sesión arranca igual, pero no se guarda nota
+        Message blankNote = new Message("START_MONITORING", "req-start-blank");
+        blankNote.addData("sessionToken", token);
+        blankNote.addData("samplingRateHz", 1000);
+        blankNote.addData("channels", List.of(0, 1, 2, 3));
+        blankNote.addData("notes", "   ");
+        Message startedBlank = conn.send(blankNote);
+        assertEquals("ACK", startedBlank.getType());
+        assertEquals(Boolean.FALSE, startedBlank.getData().get("noteSaved"));
+        stopSession(conn, token, (String) startedBlank.getData().get("sessionId"));
+
+        // Sin nota (como hasta ahora)
+        String sessionId = startSession(conn, token);
+        stopSession(conn, token, sessionId);
+
+        conn.close();
+    }
+
+    // Seguridad: un paciente no puede usar los comandos del médico
+    @Test
+    public void testPatientCannotUseDoctorCommands() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = login(conn, "P001");
+
+        Message request = new Message("LIST_PATIENTS", "req-list-patient");
+        request.addData("sessionToken", token);
+        Message response = conn.send(request);
+
+        assertEquals("ERROR", response.getType());
+        assertEquals("FORBIDDEN", response.getData().get("code"));
+
+        conn.close();
+    }
+
+    // Seguridad: el médico no puede usar los comandos del paciente
+    @Test
+    public void testDoctorCannotUsePatientCommands() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = doctorLogin(conn);
+        assertNotNull(token);
+
+        Message report = conn.send(symptomReport(token, null));
+        assertEquals("ERROR", report.getType());
+        assertEquals("FORBIDDEN", report.getData().get("code"));   // antes daba STORAGE_ERROR por casualidad
+
+        Message record = new Message("GET_MY_RECORD", "req-record-doctor");
+        record.addData("sessionToken", token);
+        assertEquals("FORBIDDEN", conn.send(record).getData().get("code"));
+
+        conn.close();
+    }
+
+    // Seguridad: los comandos del médico sin token se rechazan como no autenticados
+    @Test
+    public void testDoctorCommandsRequireLogin() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+
+        Message request = new Message("LIST_PATIENTS", "req-list-nologin");
+        Message response = conn.send(request);
+
+        assertEquals("ERROR", response.getType());
+        assertEquals("UNAUTHENTICATED", response.getData().get("code"));
+
+        conn.close();
+    }
+
+    // Seguridad: GET_MY_RECORD no envía el hash ni el salt, y la contraseña sigue funcionando
+    @Test
+    public void testGetMyRecordDoesNotSendPassword() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = login(conn, "P001");
+
+        Message request = new Message("GET_MY_RECORD", "req-record-nohash");
+        request.addData("sessionToken", token);
+        Map<?, ?> patient = (Map<?, ?>) conn.send(request).getData().get("patient");
+
+        assertEquals("P001", patient.get("patientId"));
+        assertFalse(patient.containsKey("passwordHash"));
+        assertFalse(patient.containsKey("passwordSalt"));
+
+        // La copia no se guarda: el original en disco conserva la contraseña
+        ServerConnection again = new ServerConnection();
+        again.connect();
+        assertNotNull(login(again, "P001"));
+        again.close();
+
+        conn.close();
+    }
+
+    // LIST_PATIENTS: el médico recibe todos los pacientes, sin contraseñas
+    @Test
+    public void testDoctorListsPatientsWithoutPasswords() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = doctorLogin(conn);
+
+        Message request = new Message("LIST_PATIENTS", "req-list");
+        request.addData("sessionToken", token);
+        Message response = conn.send(request);
+
+        assertEquals("ACK", response.getType());
+        assertEquals("PATIENTS_SENT", response.getStatus());
+
+        List<?> patients = (List<?>) response.getData().get("patients");
+        boolean foundP001 = false;
+        boolean foundP002 = false;
+        for (Object item : patients) {
+            Map<?, ?> patient = (Map<?, ?>) item;
+            assertFalse(patient.containsKey("passwordHash"));   // ninguno lleva el hash
+            assertFalse(patient.containsKey("passwordSalt"));
+            if ("P001".equals(patient.get("patientId"))) {
+                foundP001 = true;
+            }
+            if ("P002".equals(patient.get("patientId"))) {
+                foundP002 = true;
+            }
+        }
+        assertTrue(foundP001);
+        assertTrue(foundP002);
+
+        conn.close();
+    }
+
+    // GET_PATIENT_RECORD: el médico ve la ficha completa, incluida la nota que el paciente dejó en START_MONITORING
+    @Test
+    public void testDoctorGetsPatientRecordWithNotes() throws Exception {
+        // P001 hace una prueba con una nota única
+        ServerConnection patientConn = new ServerConnection();
+        patientConn.connect();
+        String patientToken = login(patientConn, "P001");
+        String noteText = "Nota de test " + System.nanoTime();
+
+        Message start = new Message("START_MONITORING", "req-start-record");
+        start.addData("sessionToken", patientToken);
+        start.addData("samplingRateHz", 1000);
+        start.addData("channels", List.of(0, 1, 2, 3));
+        start.addData("notes", noteText);
+        String sessionId = (String) patientConn.send(start).getData().get("sessionId");
+        stopSession(patientConn, patientToken, sessionId);
+        patientConn.close();
+
+        // El médico pide la ficha de P001
+        ServerConnection doctorConn = new ServerConnection();
+        doctorConn.connect();
+        String doctorToken = doctorLogin(doctorConn);
+
+        Message request = new Message("GET_PATIENT_RECORD", "req-patient-record");
+        request.setPatientId("P001");
+        request.addData("sessionToken", doctorToken);
+        Message response = doctorConn.send(request);
+
+        assertEquals("ACK", response.getType());
+        assertEquals("RECORD_SENT", response.getStatus());
+
+        Map<?, ?> patient = (Map<?, ?>) response.getData().get("patient");
+        assertEquals("P001", patient.get("patientId"));
+        assertFalse(patient.containsKey("passwordHash"));
+
+        boolean sessionFound = false;
+        for (Object item : (List<?>) response.getData().get("sessions")) {
+            if (sessionId.equals(((Map<?, ?>) item).get("sessionId"))) {
+                sessionFound = true;
+            }
+        }
+        assertTrue(sessionFound);
+
+        boolean noteFound = false;
+        for (Object item : (List<?>) response.getData().get("clinicalNotes")) {
+            String observation = (String) ((Map<?, ?>) item).get("observation");
+            if (observation != null && observation.contains(noteText) && observation.contains(sessionId)) {
+                noteFound = true;    // la nota la guardó el servidor y lleva la sesión en el texto
+            }
+        }
+        assertTrue(noteFound);
+
+        doctorConn.close();
+    }
+
+    // GET_PATIENT_RECORD sin patientId o con un paciente que no existe se rechaza
+    @Test
+    public void testGetPatientRecordWithInvalidPatientIsRejected() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = doctorLogin(conn);
+
+        Message missing = new Message("GET_PATIENT_RECORD", "req-record-missing");
+        missing.addData("sessionToken", token);
+        assertEquals("MISSING_FIELD", conn.send(missing).getData().get("code"));
+
+        Message unknown = new Message("GET_PATIENT_RECORD", "req-record-unknown");
+        unknown.setPatientId("P999");
+        unknown.addData("sessionToken", token);
+        assertEquals("UNKNOWN_PATIENT", conn.send(unknown).getData().get("code"));
+
+        conn.close();
+    }
+
+    // ADD_CLINICAL_NOTE: el médico añade una nota, firmada con su token, y aparece en la ficha del paciente
+    @Test
+    public void testDoctorAddsClinicalNote() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = doctorLogin(conn);
+        String text = "Observación de test " + System.nanoTime();
+
+        Message add = new Message("ADD_CLINICAL_NOTE", "req-add-note");
+        add.setPatientId("P002");
+        add.addData("sessionToken", token);
+        add.addData("observation", text);
+        add.addData("recordRef", "SES-ref-test");
+        Message response = conn.send(add);
+
+        assertEquals("ACK", response.getType());
+        assertEquals("NOTE_SAVED", response.getStatus());
+        String noteId = (String) response.getData().get("noteId");
+        assertNotNull(noteId);
+        assertNotNull(response.getData().get("timestamp"));
+
+        // La nota aparece en la ficha de P002, con su referencia y firmada por el médico del token
+        Message request = new Message("GET_PATIENT_RECORD", "req-record-after-note");
+        request.setPatientId("P002");
+        request.addData("sessionToken", token);
+        boolean found = false;
+        for (Object item : (List<?>) conn.send(request).getData().get("clinicalNotes")) {
+            Map<?, ?> note = (Map<?, ?>) item;
+            if (noteId.equals(note.get("noteId"))) {
+                found = true;
+                assertEquals("[SES-ref-test] " + text, note.get("observation"));
+                assertEquals("doctor", note.get("doctorId"));
+                assertEquals("P002", note.get("patientId"));
+            }
+        }
+        assertTrue(found);
+
+        conn.close();
+    }
+
+    // ADD_CLINICAL_NOTE sin texto, sin paciente o con un paciente que no existe se rechaza
+    @Test
+    public void testAddClinicalNoteWithInvalidDataIsRejected() throws Exception {
+        ServerConnection conn = new ServerConnection();
+        conn.connect();
+        String token = doctorLogin(conn);
+
+        Message noText = new Message("ADD_CLINICAL_NOTE", "req-note-notext");
+        noText.setPatientId("P002");
+        noText.addData("sessionToken", token);
+        noText.addData("observation", "   ");
+        assertEquals("MISSING_FIELD", conn.send(noText).getData().get("code"));
+
+        Message noPatient = new Message("ADD_CLINICAL_NOTE", "req-note-nopatient");
+        noPatient.addData("sessionToken", token);
+        noPatient.addData("observation", "Texto");
+        assertEquals("MISSING_FIELD", conn.send(noPatient).getData().get("code"));
+
+        Message unknown = new Message("ADD_CLINICAL_NOTE", "req-note-unknown");
+        unknown.setPatientId("P999");
+        unknown.addData("sessionToken", token);
+        unknown.addData("observation", "Texto");
+        assertEquals("UNKNOWN_PATIENT", conn.send(unknown).getData().get("code"));
+
+        conn.close();
     }
 }

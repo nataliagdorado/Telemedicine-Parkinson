@@ -6,6 +6,7 @@ public enum ErrorCode {
     MISSING_FIELD,          // Falta un campo obligatorio o tiene un tipo incorrecto
     INVALID_FIELD,          // Campo presente pero fuera de rango (ej. rigidez fuera de 0-4)
     UNAUTHENTICATED,        // Peticion sin login o con token no valido
+    FORBIDDEN,              // Token válido, pero el rol no permite este comando
     UNKNOWN_PATIENT,        // El paciente no existe en el hospital
     UNKNOWN_SESSION,        // La sesion de monitorizacion no existe
     STORAGE_ERROR,          // El servidor no pudo leer o guardar los datos

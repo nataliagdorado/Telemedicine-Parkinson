@@ -18,7 +18,9 @@ public class CommandRouter {
     private static final Set<Integer> VALID_RATES = Set.of(1, 10, 100, 1000);
 
     // Comandos que solo se aceptan después del LOGIN (llevan sessionToken)
-    private static final Set<String> PROTECTED_COMMANDS = Set.of("SYMPTOM_REPORT", "START_MONITORING", "SAMPLE_BLOCK", "STOP_MONITORING");
+    private static final Set<String> PROTECTED_COMMANDS = Set.of("SYMPTOM_REPORT", "START_MONITORING", "SAMPLE_BLOCK", "STOP_MONITORING","GET_MY_RECORD","UPDATE_PROFILE");
+    // Comandos del médico
+    private static final Set<String> DOCTOR_COMMANDS = Set.of("LIST_PATIENTS", "GET_PATIENT_RECORD", "ADD_CLINICAL_NOTE");
 
     // A VER, para q el router use este gestor
     private final SessionManager sessionManager;
@@ -74,11 +76,38 @@ public class CommandRouter {
                 return buildErrorResponse(request.getRequestId(), ErrorCode.UNAUTHENTICATED,
                         "Login required: missing or invalid sessionToken");
             }
+            // El token es válido: ahora, ¿es de un paciente?
+            SessionManager.ActiveSession session = sessionManager.getSession(readString(request.getData(), "sessionToken"));
+            if (session == null) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.UNAUTHENTICATED,
+                        "Login required: missing or invalid sessionToken");
+            }
+            if (!Role.PATIENT.name().equals(session.getRole())) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.FORBIDDEN,
+                        "Only patients can use " + command);
+            }
             if (request.getPatientId() != null && !request.getPatientId().equals(userId)) {
                 return buildErrorResponse(request.getRequestId(), ErrorCode.UNAUTHENTICATED,
                         "patientId does not match the session token");
             }
             request.setPatientId(userId);   // desde aqui, el patientId es el del token
+        }
+
+        if (DOCTOR_COMMANDS.contains(command)) {
+            String token = readString(request.getData(), "sessionToken");
+            SessionManager.ActiveSession session = null;
+            if (token != null) {
+                session = sessionManager.getSession(token);
+            }
+            if (session == null) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.UNAUTHENTICATED,
+                        "Login required: missing or invalid sessionToken");
+            }
+            if (!Role.DOCTOR.name().equals(session.getRole())) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.FORBIDDEN,
+                        "Only doctors can use " + command);
+            }
+            session.touch();   // actualiza el último acceso, igual que authenticatedUser()
         }
 
         switch (command) {
@@ -99,6 +128,21 @@ public class CommandRouter {
 
             case "STOP_MONITORING":
                 return handleStopMonitoring(request);
+
+            case "GET_MY_RECORD":
+                return handleGetMyRecord(request);
+
+            case "UPDATE_PROFILE":
+                return handleUpdateProfile(request);
+
+            case "LIST_PATIENTS":
+                return handleListPatients(request);
+
+            case "GET_PATIENT_RECORD":
+                return handleGetPatientRecord(request);
+
+            case "ADD_CLINICAL_NOTE":
+                return handleAddClinicalNote(request);
 
             case "PING":
                 return handlePing(request);
@@ -214,6 +258,24 @@ public class CommandRouter {
             return buildErrorResponse(request.getRequestId(), ErrorCode.INVALID_FIELD, "Invalid symptom report: " + String.join("; ", errors));
         }
 
+        String sessionId = report.getSessionId();
+        if (sessionId != null) {
+            if (sessionId.isBlank()) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.INVALID_FIELD,
+                        "sessionId cannot be empty (omit it for a report outside a session)");
+            }
+            try {
+                Optional<SessionInfo> found = repository.findSession(sessionId);
+                if (found.isEmpty() || !found.get().getPatientId().equals(report.getPatientId())) {
+                    return buildErrorResponse(request.getRequestId(), ErrorCode.UNKNOWN_SESSION,
+                            "Unknown session: " + sessionId);
+                }
+            } catch (RepositoryException e) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR,
+                        "Could not read session: " + e.getMessage());
+            }
+        }
+
         //Guardar
         try{
             repository.saveSymptomReport(report);
@@ -228,6 +290,9 @@ public class CommandRouter {
         response.setStatus("RECORDED");
         response.addData("status", "SAVED");
         response.addData("reportId", report.getReportId());
+        if (report.getSessionId() != null) {
+            response.addData("sessionId", report.getSessionId());   // el cliente confirma a qué sesión ha quedado asociado
+        }
         response.addData("message", "Symptom report registered for clinical evaluation");
         return response;
 
@@ -280,12 +345,30 @@ public class CommandRouter {
         openSessions.put(info.getSessionId(), info);   // esta conexión es la dueña de la sesión
         expectedSeq.put(info.getSessionId(), 0L);
 
+        // Nota opcional del paciente sobre esta prueba: la guarda el servidor, no la GUI
+        String notes = readString(data, "notes");
+        boolean noteSaved = false;
+        if (notes != null && !notes.isBlank()) {
+            ClinicalNote note = new ClinicalNote(
+                    IdGenerator.newNoteId(),
+                    patientId,
+                    "Patient (" + patientId + ")",
+                    "[Session " + info.getSessionId() + "] " + notes.trim());
+            try {
+                repository.saveClinicalNote(note);
+                noteSaved = true;
+            } catch (RepositoryException e) {
+                LOGGER.warning("Session " + info.getSessionId() + " started, but its note could not be saved: " + e.getMessage());
+            }
+        }
+
         // 5) Responder con el sessionId que el paciente usara en cada SAMPLE_BLOCK
         Message response = new Message("ACK", request.getRequestId());
         response.setPatientId(patientId);
         response.setStatus("MONITORING_ACTIVE");
         response.addData("status", "STARTED");
         response.addData("sessionId", info.getSessionId());
+        response.addData("noteSaved", noteSaved);
         return response;
     }
 
@@ -422,6 +505,148 @@ public class CommandRouter {
         return response;
     }
 
+    // Historial del paciente autenticado: perfil, reportes de síntomas y sesiones
+    private Message handleGetMyRecord(Message request) {
+        String patientId = request.getPatientId();   // viene del token, no del mensaje
+        try {
+            Optional<Patient> found = repository.findPatient(patientId);
+            if (found.isEmpty()) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.UNKNOWN_PATIENT, "Unknown patient: " + patientId);
+            }
+
+            Message response = new Message("ACK", request.getRequestId());
+            response.setPatientId(patientId);
+            response.setStatus("RECORD_SENT");
+            response.addData("patient", publicCopy(found.get()));
+            response.addData("symptomReports", repository.findSymptomReports(patientId));
+            response.addData("sessions", repository.findSessions(patientId));
+            return response;
+        } catch (RepositoryException e) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR, "Could not read record: " + e.getMessage());
+        }
+    }
+
+    // El paciente autenticado cambia su nombre y/o su pauta de medicación
+    private Message handleUpdateProfile(Message request) {
+        String patientId = request.getPatientId();   // viene del token
+        Map<String, Object> data = request.getData();
+
+        String newName = readString(data, "name");
+        String newSchedule = readString(data, "medicationSchedule");
+        if (newName == null && newSchedule == null) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD,
+                    "Nothing to update: send name and/or medicationSchedule");
+        }
+        if (newName != null && newName.isBlank()) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.INVALID_FIELD, "name cannot be empty");
+        }
+        if (newSchedule != null && newSchedule.isBlank()) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.INVALID_FIELD, "medicationSchedule cannot be empty");
+        }
+
+        try {
+            Optional<Patient> found = repository.findPatient(patientId);
+            if (found.isEmpty()) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.UNKNOWN_PATIENT, "Unknown patient: " + patientId);
+            }
+            Patient patient = found.get();
+            if (newName != null) {
+                patient.setName(newName.trim());
+            }
+            if (newSchedule != null) {
+                patient.setMedicationSchedule(newSchedule.trim());
+            }
+            repository.updatePatient(patient);
+        } catch (RepositoryException e) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR, "Could not update profile: " + e.getMessage());
+        }
+
+        Message response = new Message("ACK", request.getRequestId());
+        response.setPatientId(patientId);
+        response.setStatus("PROFILE_UPDATED");
+        return response;
+    }
+
+    // Médico: lista de todos los pacientes (sin contraseñas) para elegir uno
+    private Message handleListPatients(Message request) {
+        List<Patient> publicPatients = new ArrayList<>();
+        try {
+            for (Patient patient : repository.findAllPatients()) {
+                publicPatients.add(publicCopy(patient));
+            }
+        } catch (RepositoryException e) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR, "Could not read patients: " + e.getMessage());
+        }
+
+        Message response = new Message("ACK", request.getRequestId());
+        response.setStatus("PATIENTS_SENT");
+        response.addData("patients", publicPatients);
+        return response;
+    }
+
+    // Médico: historial completo de un paciente (perfil sin contraseña, reportes, sesiones y notas)
+    private Message handleGetPatientRecord(Message request) {
+        String patientId = request.getPatientId();   // el paciente que el médico quiere consultar
+        if (patientId == null || patientId.isBlank()) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD, "Missing patientId");
+        }
+        try {
+            Optional<Patient> found = repository.findPatient(patientId);
+            if (found.isEmpty()) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.UNKNOWN_PATIENT, "Unknown patient: " + patientId);
+            }
+
+            Message response = new Message("ACK", request.getRequestId());
+            response.setPatientId(patientId);
+            response.setStatus("RECORD_SENT");
+            response.addData("patient", publicCopy(found.get()));
+            response.addData("symptomReports", repository.findSymptomReports(patientId));
+            response.addData("sessions", repository.findSessions(patientId));
+            response.addData("clinicalNotes", repository.findClinicalNotes(patientId));
+            return response;
+        } catch (RepositoryException e) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR, "Could not read record: " + e.getMessage());
+        }
+    }
+
+    // Médico: añade una nota clínica a un paciente, sin modificar sus mediciones
+    private Message handleAddClinicalNote(Message request) {
+        String patientId = request.getPatientId();              // paciente al que va la nota (del mensaje)
+        String doctorId = authenticatedUser(request);           // autor de la nota (del token)
+        Map<String, Object> data = request.getData();
+        String observation = readString(data, "observation");
+        String recordRef = readString(data, "recordRef");       // opcional: sesión o reporte al que se refiere
+
+        if (patientId == null || patientId.isBlank()) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD, "Missing patientId");
+        }
+        if (observation == null || observation.isBlank()) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.MISSING_FIELD, "Missing observation");
+        }
+
+        String text = observation.trim();
+        if (recordRef != null && !recordRef.isBlank()) {
+            text = "[" + recordRef.trim() + "] " + text;
+        }
+
+        ClinicalNote note = new ClinicalNote(IdGenerator.newNoteId(), patientId, doctorId, text);
+        try {
+            if (repository.findPatient(patientId).isEmpty()) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.UNKNOWN_PATIENT, "Unknown patient: " + patientId);
+            }
+            repository.saveClinicalNote(note);
+        } catch (RepositoryException e) {
+            return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR, "Could not save note: " + e.getMessage());
+        }
+
+        Message response = new Message("ACK", request.getRequestId());
+        response.setPatientId(patientId);
+        response.setStatus("NOTE_SAVED");
+        response.addData("noteId", note.getNoteId());
+        response.addData("timestamp", note.getTimestamp().toString());
+        return response;
+    }
+
     /**
      * Se llama desde el finally de ClientHandler: las sesiones abiertas de esta conexión pasan a INCOMPLETE
      */
@@ -469,6 +694,11 @@ public class CommandRouter {
             return((Number)value).intValue();
         }
         return null;
+    }
+    // Copia del paciente para enviar por la red: mismos datos, pero sin passwordHash ni passwordSalt
+    private static Patient publicCopy(Patient patient) {
+        return new Patient(patient.getPatientId(), patient.getName(), patient.getBirthDate(),
+                patient.getDiagnosisYear(), patient.getMedicationSchedule());
     }
 
     private static Long readLong(Map<String, Object> data, String key) {
