@@ -11,22 +11,13 @@ import java.io.PrintWriter;
 import java.net.Socket;
 
 import patient.*;
-import server.data.FileRepository;
-import server.data.Patient;
-import java.nio.file.Paths;
 import java.util.List;
-import java.util.Optional;
 
-import server.data.ClinicalNote;
-import java.time.LocalDateTime;
-import java.util.UUID;
-import java.util.List;
-import java.util.Map;
 
 public class Bridge {
     private final WebEngine webEngine;
-    private static final String SERVER_HOST = "127.0.0.1";
-    private static final int SERVER_PORT = 9000;
+    private static final String SERVER_HOST = Config.get("server.ip", "127.0.0.1");
+    private static final int SERVER_PORT = Config.getInt("server.port", 9000);
 
     private Socket socket;
     private PrintWriter out;
@@ -56,6 +47,28 @@ public class Bridge {
             out.println(MessageCodec.encode(hello));
             in.readLine();
         }
+    }
+
+    // Envía un mensaje por el socket del Bridge y espera su respuesta.
+    // synchronized: el socket lo comparten varios hilos y cada pregunta debe recibir SU respuesta
+    private synchronized Message request(Message msg) throws Exception {
+        ensureConnected();
+        out.println(MessageCodec.encode(msg));
+        String raw = in.readLine();
+        if (raw == null) {
+            socket.close();   // el servidor cerró: la próxima vez ensureConnected abrirá una conexión nueva
+            throw new java.io.IOException("Server closed the connection");
+        }
+        return MessageCodec.decode(raw);
+    }
+
+    // Gson lee los números del JSON como Double (512.0): los pasa a Integer para TremorAnalyzer
+    private static List<Integer> toIntList(Object jsonList) {
+        List<Integer> result = new java.util.ArrayList<>();
+        for (Object value : (List<?>) jsonList) {
+            result.add(((Number) value).intValue());
+        }
+        return result;
     }
 
     public void login(String userId, String password, String role) {
@@ -140,23 +153,24 @@ public class Bridge {
     public void loadPatientDashboardData() {
         new Thread(() -> {
             try {
-                FileRepository repo = new FileRepository(Paths.get("data"));
-                Optional<Patient> opt = repo.findPatient(this.currentUserId);
-                List<SymptomReport> reports = repo.findSymptomReports(this.currentUserId);
-                List<SessionInfo> sessions = repo.findSessions(this.currentUserId);
+                Message req = new Message("GET_MY_RECORD", "req-record-" + System.currentTimeMillis());
+                req.addData("sessionToken", this.currentToken);
+                Message resp = request(req);
 
-                if (opt.isPresent()) {
-                    Patient p = opt.get();
-                    String profileJson = MessageCodec.toJson(p);
-                    String reportsJson = MessageCodec.toJson(reports);
-                    String sessionsJson = MessageCodec.toJson(sessions);
-
-                    Platform.runLater(() -> {
-                        webEngine.executeScript(String.format(
-                                "renderPatientDashboard(%s, %s, %s);", profileJson, reportsJson, sessionsJson
-                        ));
-                    });
+                if ("ERROR".equalsIgnoreCase(resp.getType())) {
+                    System.out.println("[Bridge] GET_MY_RECORD rejected: " + resp.getData());
+                    return;
                 }
+
+                String profileJson = MessageCodec.toJson(resp.getData().get("patient"));
+                String reportsJson = MessageCodec.toJson(resp.getData().get("symptomReports"));
+                String sessionsJson = MessageCodec.toJson(resp.getData().get("sessions"));
+
+                Platform.runLater(() -> {
+                    webEngine.executeScript(String.format(
+                            "renderPatientDashboard(%s, %s, %s);", profileJson, reportsJson, sessionsJson
+                    ));
+                });
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -166,24 +180,20 @@ public class Bridge {
     public void updatePatientProfile(String newName, String newMedSchedule) {
         new Thread(() -> {
             try {
-                FileRepository repo = new FileRepository(Paths.get("data"));
-                List<Patient> all = repo.findAllPatients();
-                for (Patient p : all) {
-                    if (p.getPatientId().equals(this.currentUserId)) {
-                        p.setName(newName);
-                        p.setMedicationSchedule(newMedSchedule);
-                        break;
-                    }
+                Message req = new Message("UPDATE_PROFILE", "req-profile-" + System.currentTimeMillis());
+                req.addData("sessionToken", this.currentToken);
+                if (newName != null && !newName.isBlank()) {
+                    req.addData("name", newName.trim());
                 }
-                // Reescribir el fichero actualizado
-                java.nio.file.Path file = Paths.get("data", "patients.jsonl");
-                StringBuilder sb = new StringBuilder();
-                for (Patient p : all) {
-                    sb.append(MessageCodec.toJson(p)).append(System.lineSeparator());
+                if (newMedSchedule != null && !newMedSchedule.isBlank()) {
+                    req.addData("medicationSchedule", newMedSchedule.trim());
                 }
-                java.nio.file.Files.writeString(file, sb.toString(), java.nio.charset.StandardCharsets.UTF_8);
+                Message resp = request(req);
 
-                loadPatientDashboardData();
+                if ("ERROR".equalsIgnoreCase(resp.getType())) {
+                    System.out.println("[Bridge] UPDATE_PROFILE rejected: " + resp.getData());
+                }
+                loadPatientDashboardData();   // refresca la pantalla con lo que hay en el servidor
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -210,6 +220,9 @@ public class Bridge {
                 startMsg.addData("sessionToken", this.currentToken);
                 startMsg.addData("samplingRateHz", samplingRateHz);
                 startMsg.addData("channels", List.of(0, 1, 2, 3));
+                if (trialNotes != null && !trialNotes.isBlank()) {
+                    startMsg.addData("notes", trialNotes.trim());   // la nota la guarda el servidor
+                }
 
                 Message startResp = monitoringConnection.send(startMsg);
                 if ("ERROR".equalsIgnoreCase(startResp.getType())) {
@@ -220,18 +233,6 @@ public class Bridge {
 
                 String sessionId = String.valueOf(startResp.getData().get("sessionId"));
 
-                // Guardar el comentario del paciente asociado a esta sesión si escribió algo
-                if (trialNotes != null && !trialNotes.isBlank()) {
-                    FileRepository repo = new FileRepository(Paths.get("data"));
-                    String noteId = "CTX-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-                    ClinicalNote contextNote = new ClinicalNote(
-                            noteId,
-                            this.currentUserId,
-                            "Patient (" + this.currentUserId + ")",
-                            "[Session #" + sessionId + "] " + trialNotes.trim()
-                    );
-                    repo.saveClinicalNote(contextNote);
-                }
 
                 String sourceType = Config.get("signal.source", "simulated");
                 String mac = Config.get("bitalino.mac", "00:21:08:35:15:00");
@@ -288,7 +289,16 @@ public class Bridge {
     public void loadDoctorCohort() {
         new Thread(() -> {
             try {
-                String json = doctorService.getCohortJson();
+                Message req = new Message("LIST_PATIENTS", "req-cohort-" + System.currentTimeMillis());
+                req.addData("sessionToken", this.currentToken);
+                Message resp = request(req);
+
+                if ("ERROR".equalsIgnoreCase(resp.getType())) {
+                    System.out.println("[Bridge] LIST_PATIENTS rejected: " + resp.getData());
+                    return;
+                }
+
+                String json = MessageCodec.toJson(resp.getData().get("patients"));
                 Platform.runLater(() -> webEngine.executeScript(String.format("renderDoctorCohort(%s);", json)));
             } catch (Exception e) {
                 e.printStackTrace();
@@ -299,13 +309,25 @@ public class Bridge {
     public void loadPatientRecordForDoctor(String patientId) {
         new Thread(() -> {
             try {
-                String[] jsons = doctorService.getPatientRecordJsons(patientId);
-                if (jsons != null) {
-                    Platform.runLater(() -> webEngine.executeScript(String.format(
-                            "renderDoctorPatientDetail(%s, %s, %s, %s);",
-                            jsons[0], jsons[1], jsons[2], jsons[3]
-                    )));
+                Message req = new Message("GET_PATIENT_RECORD", "req-patient-record-" + System.currentTimeMillis());
+                req.setPatientId(patientId);                       // el paciente que el médico ha elegido
+                req.addData("sessionToken", this.currentToken);
+                Message resp = request(req);
+
+                if ("ERROR".equalsIgnoreCase(resp.getType())) {
+                    System.out.println("[Bridge] GET_PATIENT_RECORD rejected: " + resp.getData());
+                    return;
                 }
+
+                String profileJson = MessageCodec.toJson(resp.getData().get("patient"));
+                String reportsJson = MessageCodec.toJson(resp.getData().get("symptomReports"));
+                String sessionsJson = MessageCodec.toJson(resp.getData().get("sessions"));
+                String notesJson = MessageCodec.toJson(resp.getData().get("clinicalNotes"));
+
+                Platform.runLater(() -> webEngine.executeScript(String.format(
+                        "renderDoctorPatientDetail(%s, %s, %s, %s);",
+                        profileJson, reportsJson, sessionsJson, notesJson
+                )));
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -315,8 +337,19 @@ public class Bridge {
     public void saveDoctorObservation(String patientId, String recordRef, String observationText) {
         new Thread(() -> {
             try {
-                doctorService.addClinicalObservation(patientId, this.currentUserId, recordRef, observationText);
-                loadPatientRecordForDoctor(patientId);
+                Message req = new Message("ADD_CLINICAL_NOTE", "req-note-" + System.currentTimeMillis());
+                req.setPatientId(patientId);                        // paciente al que va la nota
+                req.addData("sessionToken", this.currentToken);     // el servidor saca de aquí el autor
+                req.addData("observation", observationText);
+                if (recordRef != null && !recordRef.isBlank()) {
+                    req.addData("recordRef", recordRef);
+                }
+                Message resp = request(req);
+
+                if ("ERROR".equalsIgnoreCase(resp.getType())) {
+                    System.out.println("[Bridge] ADD_CLINICAL_NOTE rejected: " + resp.getData());
+                }
+                loadPatientRecordForDoctor(patientId);   // refresca la ficha con lo que hay en el servidor
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -326,20 +359,39 @@ public class Bridge {
     public void loadSignalWaveformForDoctor(String sessionId) {
         new Thread(() -> {
             try {
-                DoctorService.WaveformPayload wf = doctorService.getSessionWaveform(sessionId);
-                if (wf == null) {
+                Message req = new Message("GET_SESSION_SIGNAL", "req-signal-" + System.currentTimeMillis());
+                req.addData("sessionToken", this.currentToken);
+                req.addData("sessionId", sessionId);
+                Message resp = request(req);
+
+                if ("ERROR".equalsIgnoreCase(resp.getType())) {
+                    String err = String.valueOf(resp.getData().get("error"));
+                    String safeErr = err.replace("\\", "\\\\").replace("'", "\\'");   // para no romper el string de JS
                     Platform.runLater(() -> webEngine.executeScript(
-                            String.format("onSignalWaveformError('CSV file not found for session %s');", sessionId)
-                    ));
+                            String.format("onSignalWaveformError('%s');", safeErr)));
                     return;
                 }
+
+                List<Integer> emg = toIntList(resp.getData().get("emg"));
+                if (emg.isEmpty()) {
+                    Platform.runLater(() -> webEngine.executeScript(
+                            String.format("onSignalWaveformError('Session %s has no samples');", sessionId)));
+                    return;
+                }
+                int samplingRateHz = ((Number) resp.getData().get("samplingRateHz")).intValue();
+
+                DoctorService.WaveformPayload wf = doctorService.buildWaveform(sessionId, samplingRateHz, emg,
+                        toIntList(resp.getData().get("accX")),
+                        toIntList(resp.getData().get("accY")),
+                        toIntList(resp.getData().get("accZ")));
+
                 Platform.runLater(() -> webEngine.executeScript(String.format(
                         "renderDoctorWaveformModal('%s', %s, %s, %d, %s);",
                         sessionId, wf.emgJson(), wf.accJson(), wf.totalSamples(), wf.metricsJson()
                 )));
             } catch (Exception e) {
                 e.printStackTrace();
-                Platform.runLater(() -> webEngine.executeScript("onSignalWaveformError('Failed to parse signal CSV');"));
+                Platform.runLater(() -> webEngine.executeScript("onSignalWaveformError('Failed to load the session signal');"));
             }
         }).start();
     }
