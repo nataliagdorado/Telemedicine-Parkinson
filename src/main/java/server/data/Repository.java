@@ -59,4 +59,12 @@ public interface Repository {
     void saveClinicalNote(ClinicalNote note) throws RepositoryException;
 
     List<ClinicalNote> findClinicalNotes(String patientId) throws RepositoryException;
+
+    /**
+     * Libera los recursos del almacenamiento al apagar el servidor.
+     * Por defecto no hace nada (FileRepository no mantiene nada abierto);
+     * SqliteRepository lo sobrescribe para cerrar la conexión.
+     */
+    default void close() throws RepositoryException {
+    }
 }

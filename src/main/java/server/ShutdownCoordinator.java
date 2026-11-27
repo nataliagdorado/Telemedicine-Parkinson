@@ -6,6 +6,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import server.data.RepositoryException;
 import server.data.SignalStore;
+import server.data.Repository;
 
 /**
  * Requisito 8: Mechanism to close the server and release network resources.
@@ -20,11 +21,13 @@ public class ShutdownCoordinator {
     private final ClientRegistry clientRegistry;
     private final SignalStore signalStore;
     private volatile boolean running = true;
+    private final Repository repository;
 
-    public ShutdownCoordinator(ServerSocket serverSocket, ClientRegistry clientRegistry, SignalStore signalStore) {
+    public ShutdownCoordinator(ServerSocket serverSocket, ClientRegistry clientRegistry, SignalStore signalStore, Repository repository) {
         this.serverSocket = serverSocket;
         this.clientRegistry = clientRegistry;
         this.signalStore = signalStore;
+        this.repository = repository;
     }
 
     /**
@@ -73,6 +76,16 @@ public class ShutdownCoordinator {
                 LOGGER.info("Signal files closed.");
             } catch (RepositoryException e) {
                 LOGGER.log(Level.WARNING, "Error closing signal files: " + e.getMessage());
+            }
+        }
+
+        // 5. Cerrar el almacenamiento (en SQLite cierra la conexión; en ficheros no hace nada)
+        if (repository != null) {
+            try {
+                repository.close();
+                LOGGER.info("Repository closed.");
+            } catch (RepositoryException e) {
+                LOGGER.log(Level.WARNING, "Error closing repository: " + e.getMessage());
             }
         }
 

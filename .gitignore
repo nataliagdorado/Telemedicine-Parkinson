@@ -2,10 +2,11 @@
 target/
 
 # Datos generados al ejecutar (cada uno tiene los suyos)
-data/
+data-dev/
 data-old/
 data-demo/
 
 # Configuración local de IntelliJ
 .idea/
 *.iml
+*.db

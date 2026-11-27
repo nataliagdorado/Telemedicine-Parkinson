@@ -85,6 +85,7 @@ public class SqliteRepository implements Repository {
         }
     }
 
+    @Override
     public synchronized void close() throws RepositoryException{
         try{
             connection.close();

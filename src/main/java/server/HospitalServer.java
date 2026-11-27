@@ -25,7 +25,7 @@ import java.nio.file.Files;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-
+import server.data.SqliteRepository;
 /**
  * Servidor central multihilo para el sistema de telemedicina de Parkinson.
  * Gestiona conexiones TCP concurrentes, sesiones y el ciclo de vida de los sockets
@@ -56,7 +56,7 @@ public class HospitalServer {
         Repository repository;
         SignalStore signalStore;
         try {
-            repository = new FileRepository(DATA_DIR);
+            repository = createRepository();
             signalStore = new FileSignalStore(DATA_DIR.resolve("signals"));
             int added = SeedData.loadIfMissing(repository);   // antes del accept(): aun solo existe el hilo main
             LOGGER.info("Data in " + DATA_DIR.toAbsolutePath() + " (" + added + " seed patients added)");
@@ -78,7 +78,7 @@ public class HospitalServer {
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
 
             // Inicializa el coordinador de apagado pasandole el ServerSocket y la lista de clientes activos
-            shutdownCoordinator = new ShutdownCoordinator(serverSocket, clientRegistry, signalStore);
+            shutdownCoordinator = new ShutdownCoordinator(serverSocket, clientRegistry, signalStore, repository);
 
             // atrapar señales de apagado
             shutdownCoordinator.registerShutdownHook();
@@ -154,6 +154,24 @@ public class HospitalServer {
             }
         }
         return recovered;
+    }
+
+    /**
+     * Crea el Repository según la clave "storage" de config.properties:
+     * file (por defecto) = JSON Lines en data.dir ; sqlite = data.dir/telemed.db
+     */
+    private static Repository createRepository() throws RepositoryException{
+        String storage = Config.get("storage", "file").trim().toLowerCase();
+        if (storage.equals("file")){
+            LOGGER.info("Storage: JSON Lines files in " + DATA_DIR.toAbsolutePath());
+            return new FileRepository(DATA_DIR);
+        } else if (storage.equals("sqlite")) {
+            Path dbFile = DATA_DIR.resolve("telemed.db");
+            LOGGER.info("Storage: SQLite database " + dbFile.toAbsolutePath());
+            return new SqliteRepository(dbFile);
+        }else {
+            throw new RepositoryException("Valor de storage no válido: '" + storage + "' (usa file o sqlite)");
+        }
     }
 
     /**
