@@ -1,10 +1,6 @@
-package server.data;
+package server;
 
 import common.SessionInfo;
-import server.AdminAuth;
-import server.ClientHandler;
-import server.ClientRegistry;
-import server.ShutdownCoordinator;
 import server.data.Patient;
 import server.data.Repository;
 
@@ -31,15 +27,14 @@ public class ServerAdminFrame extends JFrame {
                             ClientRegistry clientRegistry,
                             Repository repository,
                             ShutdownCoordinator shutdownCoordinator,
-                            String adminPassword) {
+                            String adminHash,
+                            String adminSalt) {
         this.port = port;
         this.clientRegistry = clientRegistry;
         this.repository = repository;
         this.shutdownCoordinator = shutdownCoordinator;
-
-        // Hashear contraseña AdminAuth (SHA-256 + salt)
-        this.adminSalt = AdminAuth.generateSalt();
-        this.adminHash = AdminAuth.hashPassword(adminPassword, this.adminSalt);
+        this.adminHash = adminHash;
+        this.adminSalt = adminSalt;
 
         setTitle("TremorLink · Hospital Server Admin Console (Port " + port + ")");
         setSize(880, 540);
@@ -98,7 +93,7 @@ public class ServerAdminFrame extends JFrame {
     }
 
     private void refreshData() {
-        // clientes conectados en tiempo real
+        // Clientes conectados en tiempo real
         connectedModel.setRowCount(0);
         if (clientRegistry != null) {
             int count = clientRegistry.getActiveClientCount();
@@ -114,7 +109,7 @@ public class ServerAdminFrame extends JFrame {
             }
         }
 
-        // sesiones registradas en el Repository
+        // Sesiones registradas en el Repository
         sessionsModel.setRowCount(0);
         if (repository != null) {
             try {
@@ -157,6 +152,20 @@ public class ServerAdminFrame extends JFrame {
         if (option == JOptionPane.OK_OPTION) {
             String entered = new String(pwdField.getPassword());
             if (AdminAuth.verifyPassword(entered, adminHash, adminSalt)) {
+                int currentActive = clientRegistry != null ? clientRegistry.getActiveClientCount() : 0;
+                if (currentActive > 0) {
+                    int confirm = JOptionPane.showConfirmDialog(
+                            this,
+                            "Hay " + currentActive + " cliente(s) conectado(s). ¿Apagar el servidor igualmente?",
+                            "Confirmar desconexión de clientes",
+                            JOptionPane.YES_NO_OPTION,
+                            JOptionPane.WARNING_MESSAGE
+                    );
+                    if (confirm != JOptionPane.YES_OPTION) {
+                        return;
+                    }
+                }
+
                 dispose();
                 if (shutdownCoordinator != null) {
                     shutdownCoordinator.stopServer();

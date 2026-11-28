@@ -7,7 +7,6 @@ import server.data.Repository;
 import server.data.RepositoryException;
 import server.data.SeedData;
 import server.data.SignalStore;
-import server.data.ServerAdminFrame;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -77,14 +76,28 @@ public class HospitalServer {
         // automaticamente al finalizar o si se produce una excepcion no recuperable
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
 
+            // Lee credenciales hasheadas del administrador desde config/config.properties (R8)
+            String adminSalt = Config.get("admin.salt", "");
+            String adminHash = Config.get("admin.hash", "");
+
+            if (adminSalt.isEmpty() || adminHash.isEmpty()) {
+                throw new IllegalStateException("Faltan admin.salt y admin.hash en config/config.properties");
+            }
+
             // Inicializa el coordinador de apagado pasandole el ServerSocket y la lista de clientes activos
             shutdownCoordinator = new ShutdownCoordinator(serverSocket, clientRegistry, signalStore, repository);
 
-            // atrapar señales de apagado
+            // Atrapar señales de apagado
             shutdownCoordinator.registerShutdownHook();
 
-            // Crea la consola interactiva de administracion pasandole los registros y el coordinador
-            AdminConsole adminConsole = new AdminConsole(clientRegistry, sessionManager, shutdownCoordinator);
+            // Crea la consola interactiva de administracion pasandole hash y salt para validar 'stop'
+            AdminConsole adminConsole = new AdminConsole(
+                    clientRegistry,
+                    sessionManager,
+                    shutdownCoordinator,
+                    adminHash,
+                    adminSalt
+            );
 
             // Envuelve la consola en un hilo secundario y lo marca como Daemon para que no bloquee el cierre del programa
             Thread consoleThread = new Thread(adminConsole, "AdminConsole-Thread");
@@ -94,14 +107,16 @@ public class HospitalServer {
             consoleThread.start();
 
             LOGGER.info("Server listening for incoming connections on port " + PORT);
-            String adminPassword = Config.get("admin.password", "admin123");
+
+            // Lanza la ventana grafica de administracion con hash y salt
             SwingUtilities.invokeLater(() -> {
                 ServerAdminFrame adminFrame = new ServerAdminFrame(
                         PORT,
                         clientRegistry,
                         repository,
                         shutdownCoordinator,
-                        adminPassword
+                        adminHash,
+                        adminSalt
                 );
                 adminFrame.setVisible(true);
             });

@@ -24,7 +24,22 @@ public class AdminAuth {
         RANDOM.nextBytes(salt);
         return Base64.getEncoder().encodeToString(salt);
     }
+    /* EN CASO DE QUERER GENERAL UN SALT (Ya hecho, dejo el código por si acaso)
+    public static void main(String[] args) {
 
+        String salt = generateSalt();
+        String hash = hashPassword("admin123", salt);
+        System.out.println("admin.salt=" + salt);
+        System.out.println("admin.hash=" + hash);
+    }*/
+
+   /* public static void main(String[] args) {
+        String salt = AdminAuth.generateSalt();
+        String hash = AdminAuth.hashPassword("admin2026", salt);
+        System.out.println("doctor.username=doctor");
+        System.out.println("doctor.salt=" + salt);
+        System.out.println("doctor.hash=" + hash);
+    }*/
     /**
      * Calcula el hash SHA-256 combinando la contrasena en texto plano y el salt.
      */

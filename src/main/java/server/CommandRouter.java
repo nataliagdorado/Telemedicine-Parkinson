@@ -210,9 +210,17 @@ public class CommandRouter {
                         "Could not read patient: " + e.getMessage());
             }
         } else if (role == Role.DOCTOR || role == Role.ADMIN) {
-            // Credencial maestra del especialista (doctor / admin2026)
-            if (!"doctor".equalsIgnoreCase(id) || !"admin2026".equals(password)) {
-                return buildErrorResponse(request.getRequestId(), ErrorCode.UNAUTHENTICATED, "Invalid specialist credentials");
+            String expectedUser = Config.get("doctor.username", "");
+            String docSalt = Config.get("doctor.salt", "");
+            String docHash = Config.get("doctor.hash", "");
+
+            if (expectedUser.isEmpty() || docSalt.isEmpty() || docHash.isEmpty()) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.STORAGE_ERROR,
+                        "Specialist credentials not configured on server");
+            }
+            if (!expectedUser.equalsIgnoreCase(id) || !AdminAuth.verifyPassword(password, docHash, docSalt)) {
+                return buildErrorResponse(request.getRequestId(), ErrorCode.UNAUTHENTICATED,
+                        "Invalid specialist credentials");
             }
         }
 

@@ -209,7 +209,7 @@ public class Bridge {
         new Thread(() -> {
             try {
                 monitoringConnection = new ServerConnection();
-                monitoringConnection.connect(); // Si pide host y puerto, usa connect(SERVER_HOST, SERVER_PORT)
+                monitoringConnection.connect();
 
                 Message hello = new Message("HELLO", "req-mon-hello");
                 monitoringConnection.send(hello);
@@ -233,15 +233,19 @@ public class Bridge {
 
                 String sessionId = String.valueOf(startResp.getData().get("sessionId"));
 
-
                 String sourceType = Config.get("signal.source", "simulated");
                 String mac = Config.get("bitalino.mac", "00:21:08:35:15:00");
                 SignalSource source = "bitalino".equalsIgnoreCase(sourceType)
                         ? new BitalinoSignalSource()
                         : new SimulatedSignalSource();
-                source.connect(mac, samplingRateHz);
 
-                source.connect("00:21:08:35:15:00", samplingRateHz);
+                if (!source.connect(mac, samplingRateHz)) {
+                    Platform.runLater(() -> webEngine.executeScript(
+                            String.format("onCaptureError('Could not connect to BITalino (%s)');", mac)
+                    ));
+                    monitoringConnection.close();
+                    return;
+                }
 
                 activeController = new MonitoringSessionController(
                         source,
