@@ -62,7 +62,7 @@ public class Bridge {
         return MessageCodec.decode(raw);
     }
 
-    // Gson lee los números del JSON como Double (512.0): los pasa a Integer para TremorAnalyzer
+    // Gson lee los números del JSON como Double: los pasa a Integer para TremorAnalyzer
     private static List<Integer> toIntList(Object jsonList) {
         List<Integer> result = new java.util.ArrayList<>();
         for (Object value : (List<?>) jsonList) {
@@ -71,6 +71,9 @@ public class Bridge {
         return result;
     }
 
+    /* Nota de Natalia: En ciertos métodos de esta clase pone 0 Usages, pero están inyectados desde el Webview con
+    window.JavaBridge, se llaman desde JavaScript y no desde Java
+     */
     public void login(String userId, String password, String role) {
         new Thread(() -> {
             try {
